@@ -1,7 +1,7 @@
 {
   "name": "@choneface/oni",
   "version": "0.1.0",
-  "description": "OpenClaw Newsletter Ingest: poll newsletters, analyze them with an LLM, and store structured events in SQLite.",
+  "description": "OpenClaw Newsletter Ingest: poll newsletters, analyze them with an LLM, and store configurable structured records in SQLite.",
   "type": "module",
   "bin": {
     "oni": "./dist/cli.js"

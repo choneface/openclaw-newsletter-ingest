@@ -1,11 +1,22 @@
 #!/usr/bin/env node
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Command } from "commander";
-import { connect, initDb, insertEvents, markEmailFailed, markEmailParsed, queryEvents, unparsedEmails } from "./db.js";
-import { type PollerConfig, initPoller, loadPoller, loadSources, oniHome, readPrompt } from "./config.js";
+import { connect, initDb, insertRecords, markEmailFailed, markEmailParsed, queryRecords, unparsedEmails } from "./db.js";
+import {
+  DEFAULT_OUTPUT_SCHEMA,
+  type OutputColumn,
+  type OutputSchema,
+  type PollerConfig,
+  formatOutputSchema,
+  initPoller,
+  loadPoller,
+  loadSources,
+  oniHome,
+  readPrompt
+} from "./config.js";
 import { pollAll } from "./poller.js";
-import { extractEvents } from "./analyzer.js";
+import { extractRecords } from "./analyzer.js";
 import { journalctl, serviceName, systemctl, timerName, writeSystemdUnits } from "./systemd.js";
 
 const program = new Command();
@@ -21,22 +32,32 @@ program.command("init")
   .option("--interval-minutes <minutes>", "polling interval", parseNumber, 30)
   .option("--openclaw-env <path>", "path to openclaw .env")
   .option("--analyzer-provider <provider>", "analyzer provider", "anthropic")
+  .option("--record-name <name>", "singular name for parsed records", DEFAULT_OUTPUT_SCHEMA.recordName)
+  .option("--table <name>", "SQLite table for parsed records", DEFAULT_OUTPUT_SCHEMA.table)
+  .option("--root-key <key>", "top-level JSON array key expected from the analyzer", DEFAULT_OUTPUT_SCHEMA.rootKey)
   .option("--force", "overwrite existing template files")
   .action((slug, options) => {
     const home = homeFromProgram();
+    const schema = defaultSchemaWith({
+      recordName: options.recordName,
+      table: options.table,
+      rootKey: options.rootKey
+    });
     const root = initPoller({
       slug,
       home,
       intervalMinutes: options.intervalMinutes,
       openclawEnv: options.openclawEnv,
       analyzerProvider: options.analyzerProvider,
+      schema,
       force: Boolean(options.force)
     });
-    initDb(resolve(root, "newsletters.db"));
+    initDb(resolve(root, "newsletters.db"), schema);
     console.log(`created ${root}`);
     console.log(`edit ${resolve(root, "poller.yaml")}`);
     console.log(`edit ${resolve(root, "sources.yaml")}`);
     console.log(`edit ${resolve(root, "prompt.md")}`);
+    console.log(`edit ${resolve(root, "schema.yaml")}`);
   });
 
 program.command("sources")
@@ -46,6 +67,53 @@ program.command("sources")
     for (const source of loadSources(cfg.sourcesPath)) {
       console.log(`${source.name.padEnd(20)} ${source.parser.padEnd(25)} ${source.gmailQuery}`);
     }
+  });
+
+program.command("schema")
+  .argument("<slug>", "poller slug")
+  .description("print the configured parsed output schema")
+  .action((slug) => {
+    const cfg = loadPoller(slug, { home: homeFromProgram(), requireSecrets: false });
+    console.log(formatOutputSchema(cfg.output));
+  });
+
+program.command("schema-set")
+  .argument("<slug>", "poller slug")
+  .option("--record-name <name>", "singular name for parsed records")
+  .option("--table <name>", "SQLite table for parsed records")
+  .option("--root-key <key>", "top-level JSON array key expected from the analyzer")
+  .description("update parsed output schema naming")
+  .action((slug, options) => {
+    const cfg = loadPoller(slug, { home: homeFromProgram(), requireSecrets: false });
+    const schema = {
+      ...cfg.output,
+      recordName: options.recordName ?? cfg.output.recordName,
+      table: options.table ?? cfg.output.table,
+      rootKey: options.rootKey ?? cfg.output.rootKey
+    };
+    writeSchemaAndInit(cfg, schema);
+    console.log(`updated ${cfg.schemaPath}`);
+  });
+
+program.command("schema-add-column")
+  .argument("<slug>", "poller slug")
+  .argument("<name>", "column name")
+  .option("--type <type>", "column type: text, integer, number, boolean, json", "text")
+  .option("--required", "mark column NOT NULL")
+  .option("--index", "create an index for this column")
+  .description("add a column to the parsed output schema")
+  .action((slug, name, options) => {
+    const cfg = loadPoller(slug, { home: homeFromProgram(), requireSecrets: false });
+    if (cfg.output.columns.some((column) => column.name === name)) throw new Error(`schema already has column: ${name}`);
+    const column: OutputColumn = {
+      name,
+      type: parseColumnType(options.type),
+      required: Boolean(options.required),
+      index: Boolean(options.index)
+    };
+    const schema = { ...cfg.output, columns: [...cfg.output.columns, column] };
+    writeSchemaAndInit(cfg, schema);
+    console.log(`added ${name} to ${cfg.schemaPath}`);
   });
 
 program.command("poll")
@@ -91,16 +159,20 @@ program.command("query")
   .option("--to <date>", "end date")
   .option("--source <name>", "source name")
   .option("--neighborhood <name>", "neighborhood")
+  .option("--where <field=value...>", "filter parsed output fields by exact value")
+  .option("--order-by <field>", "order by output field; prefix with - for descending")
   .option("--limit <n>", "max rows", parseNumber, 100)
   .action((slug, options) => {
     const cfg = loadPoller(slug, { home: homeFromProgram(), requireSecrets: false });
     const db = connect(cfg.settings.dbPath);
     try {
-      console.log(JSON.stringify(queryEvents(db, {
+      console.log(JSON.stringify(queryRecords(db, cfg.output, {
         dateFrom: options.from,
         dateTo: options.to,
         source: options.source,
         neighborhood: options.neighborhood,
+        where: options.where,
+        orderBy: options.orderBy,
         limit: options.limit
       }), null, 2));
     } finally {
@@ -168,11 +240,11 @@ async function parse(cfg: PollerConfig, prompt: string, options: { limit?: numbe
     const rows = unparsedEmails(db, options);
     for (const row of rows) {
       try {
-        const events = await extractEvents(cfg.provider, cfg.settings, prompt, row);
-        const count = insertEvents(db, row.id, row.source, events);
+        const records = await extractRecords(cfg.provider, cfg.settings, prompt, cfg.output, row);
+        const count = insertRecords(db, cfg.output, row.id, row.source, records);
         markEmailParsed(db, row.id);
         parsed += 1;
-        console.log(`  email#${row.id} (${row.source}): ${count} events`);
+        console.log(`  email#${row.id} (${row.source}): ${count} ${cfg.output.rootKey}`);
       } catch (error) {
         markEmailFailed(db, row.id, error instanceof Error ? error.message : String(error));
         failed += 1;
@@ -199,4 +271,32 @@ function currentOniBin(): string {
   const argvBin = process.argv[1] ? resolve(process.argv[1]) : "";
   if (argvBin && existsSync(argvBin) && !argvBin.endsWith("src/cli.ts")) return argvBin;
   return "oni";
+}
+
+function defaultSchemaWith(overrides: Pick<OutputSchema, "recordName" | "table" | "rootKey">): OutputSchema {
+  const usesDefaultNames = overrides.recordName === DEFAULT_OUTPUT_SCHEMA.recordName
+    && overrides.table === DEFAULT_OUTPUT_SCHEMA.table
+    && overrides.rootKey === DEFAULT_OUTPUT_SCHEMA.rootKey;
+  if (usesDefaultNames) return DEFAULT_OUTPUT_SCHEMA;
+  return {
+    recordName: overrides.recordName,
+    table: overrides.table,
+    rootKey: overrides.rootKey,
+    columns: [
+      { name: "title", type: "text", required: true, index: false },
+      { name: "summary", type: "text", required: false, index: false },
+      { name: "link", type: "text", required: false, index: false },
+      { name: "tags", type: "json", required: false, index: false }
+    ]
+  };
+}
+
+function writeSchemaAndInit(cfg: PollerConfig, schema: OutputSchema): void {
+  initDb(cfg.settings.dbPath, schema);
+  writeFileSync(cfg.schemaPath, formatOutputSchema(schema));
+}
+
+function parseColumnType(value: string): OutputColumn["type"] {
+  if (["text", "integer", "number", "boolean", "json"].includes(value)) return value as OutputColumn["type"];
+  throw new Error(`unsupported column type: ${value}`);
 }
