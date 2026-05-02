@@ -3,6 +3,14 @@
   "version": "0.0.1",
   "description": "OpenClaw Newsletter Ingest: poll newsletters, analyze them with an LLM, and store configurable structured records in SQLite.",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/choneface/openclaw-newsletter-ingest"
+  },
+  "bugs": {
+    "url": "https://github.com/choneface/openclaw-newsletter-ingest/issues"
+  },
+  "homepage": "https://github.com/choneface/openclaw-newsletter-ingest#readme",
   "bin": {
     "oni": "./dist/cli.js"
   },
