@@ -97,7 +97,7 @@ Partial sync exists at `/opt/oni`, but it may be stale because `package.json` ch
 - Run a real `oni poll`/`oni parse` against Gmail and Anthropic credentials.
 - Anthropic extraction should eventually use tool/schema output instead of “please return JSON text”.
 - Consider renaming repo/package description fully from `openclaw-newsletter-ingest` to `oni`.
-- Consider deleting legacy `schema.sql` or keeping it only as documentation. Runtime schema is now embedded in `src/db.ts`.
+- Runtime schema is embedded in `src/db.ts`; the legacy top-level `schema.sql` has been removed.
 
 ## Desired End State
 
