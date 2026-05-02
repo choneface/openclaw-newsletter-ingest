@@ -6,7 +6,10 @@ type EventList = {
   events: EventInput[];
 };
 
-export async function extractEvents(settings: Settings, prompt: string, email: EmailRow): Promise<EventInput[]> {
+export async function extractEvents(provider: string, settings: Settings, prompt: string, email: EmailRow): Promise<EventInput[]> {
+  if (provider === "mock") return [];
+  if (provider !== "anthropic") throw new Error(`unsupported analyzer provider: ${provider}`);
+
   const client = new Anthropic({ apiKey: settings.anthropicApiKey });
   const response = await client.messages.create({
     model: settings.model,

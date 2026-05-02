@@ -16,6 +16,9 @@ export type Settings = {
   gmailUser: string;
   gmailAppPassword: string;
   gmailFolder: string;
+  imapConnectionTimeoutMs: number;
+  imapGreetingTimeoutMs: number;
+  imapSocketTimeoutMs: number;
   anthropicApiKey: string;
   model: string;
   dbPath: string;
@@ -61,7 +64,7 @@ const DEFAULT_SOURCES = `# Newsletter sources for this poller.
   enabled: true
 `;
 
-function defaultPollerYaml(slug: string, intervalMinutes: number, openclawEnv: string): string {
+function defaultPollerYaml(slug: string, intervalMinutes: number, openclawEnv: string, analyzerProvider = "anthropic"): string {
   return `version: 1
 slug: ${slug}
 interval_minutes: ${intervalMinutes}
@@ -71,9 +74,12 @@ imap:
   folder: INBOX
   user_env: GMAIL_USER
   app_password_env: GMAIL_APP_PASSWORD
+  connection_timeout_ms: 15000
+  greeting_timeout_ms: 10000
+  socket_timeout_ms: 30000
 
 analyzer:
-  provider: anthropic
+  provider: ${analyzerProvider}
   api_key_env: ANTHROPIC_API_KEY
   model: claude-sonnet-4-6
   prompt: prompt.md
@@ -105,6 +111,7 @@ export function initPoller(options: {
   home: string;
   intervalMinutes: number;
   openclawEnv?: string;
+  analyzerProvider?: string;
   force?: boolean;
 }): string {
   ensureOniHome(options.home);
@@ -113,7 +120,11 @@ export function initPoller(options: {
     throw new Error(`poller already exists: ${options.slug}`);
   }
   mkdirSync(join(root, "logs"), { recursive: true });
-  writeTemplate(join(root, "poller.yaml"), defaultPollerYaml(options.slug, options.intervalMinutes, options.openclawEnv ?? ""), Boolean(options.force));
+  writeTemplate(
+    join(root, "poller.yaml"),
+    defaultPollerYaml(options.slug, options.intervalMinutes, options.openclawEnv ?? "", options.analyzerProvider ?? "anthropic"),
+    Boolean(options.force)
+  );
   writeTemplate(join(root, "sources.yaml"), DEFAULT_SOURCES, Boolean(options.force));
   writeTemplate(join(root, "prompt.md"), DEFAULT_PROMPT, Boolean(options.force));
   return root;
@@ -152,6 +163,9 @@ export function loadPoller(slug: string, options: { home: string; requireSecrets
       gmailUser: envValue(imap.user_env ?? "GMAIL_USER"),
       gmailAppPassword: envValue(imap.app_password_env ?? "GMAIL_APP_PASSWORD").replaceAll(" ", ""),
       gmailFolder: imap.folder ?? "INBOX",
+      imapConnectionTimeoutMs: Number(imap.connection_timeout_ms ?? 15000),
+      imapGreetingTimeoutMs: Number(imap.greeting_timeout_ms ?? 10000),
+      imapSocketTimeoutMs: Number(imap.socket_timeout_ms ?? 30000),
       anthropicApiKey: envValue(analyzer.api_key_env ?? "ANTHROPIC_API_KEY"),
       model: analyzer.model ?? "claude-sonnet-4-6",
       dbPath,

@@ -100,6 +100,33 @@ oni start weekendercrix
 `oni start <slug>` writes a systemd service/timer pair named
 `oni-<slug>.service` and `oni-<slug>.timer`.
 
+## Docker Smoke Test
+
+The Compose setup runs the same Node CLI in a Debian container and stores
+poller state under `.docker/oni-home` on the host. It references the secrets
+file as an env file and read-only mount; do not print it or copy it into the
+repo.
+
+```sh
+docker compose build oni
+docker compose run --rm init-poller
+docker compose run --rm oni poll docker-test --source _self_test --limit 5
+docker compose run --rm oni parse docker-test --limit 5
+docker compose run --rm oni query docker-test
+```
+
+`init-poller` uses `ANALYZER_PROVIDER=mock` by default so smoke tests can
+verify Gmail polling, storage, and parse bookkeeping without spending LLM
+tokens. Set `ANALYZER_PROVIDER=anthropic` when you intentionally want to test
+live extraction.
+
+To use a different secrets file or poller slug:
+
+```sh
+OPENCLAW_ENV_FILE=/path/to/openclaw.env POLLER_SLUG=weekendercrix docker compose run --rm init-poller
+OPENCLAW_ENV_FILE=/path/to/openclaw.env docker compose run --rm oni run weekendercrix --once --limit 5
+```
+
 ## CLI
 
 ```

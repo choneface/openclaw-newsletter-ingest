@@ -25,6 +25,9 @@ export async function pollAll(settings: Settings, sources: Source[], options: { 
     host: "imap.gmail.com",
     port: 993,
     secure: true,
+    connectionTimeout: settings.imapConnectionTimeoutMs,
+    greetingTimeout: settings.imapGreetingTimeoutMs,
+    socketTimeout: settings.imapSocketTimeoutMs,
     auth: {
       user: settings.gmailUser,
       pass: settings.gmailAppPassword
@@ -32,17 +35,71 @@ export async function pollAll(settings: Settings, sources: Source[], options: { 
     logger: false
   });
 
-  await client.connect();
+  let imapError: Error | null = null;
+  client.on("error", (error: unknown) => {
+    imapError = asError(error);
+  });
+
   try {
-    await client.mailboxOpen(settings.gmailFolder);
+    await withTimeout(
+      client.connect(),
+      settings.imapConnectionTimeoutMs + settings.imapGreetingTimeoutMs + 5000,
+      () => imapError ?? new Error("IMAP connection timed out")
+    );
+    await withTimeout(
+      client.mailboxOpen(settings.gmailFolder),
+      settings.imapSocketTimeoutMs + 5000,
+      () => imapError ?? new Error(`IMAP mailbox open timed out for ${settings.gmailFolder}`)
+    );
     const results: PollResult[] = [];
     for (const source of sources) {
       results.push(await pollSource(settings, source, client, options));
     }
     return results;
+  } catch (error) {
+    throw new Error(`IMAP poll failed: ${errorMessage(error)}`);
   } finally {
     await client.logout().catch(() => undefined);
   }
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, errorFactory: () => Error): Promise<T> {
+  let timer: NodeJS.Timeout | null = null;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(errorFactory()), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
+function asError(error: unknown): Error {
+  if (error instanceof Error) return error;
+  return new Error(String(error));
+}
+
+function errorMessage(error: unknown): string {
+  const err = asError(error);
+  const details = errorDetails(err);
+  return [err.message || err.name || String(error) || "unknown error", details].filter(Boolean).join(" - ");
+}
+
+function errorDetails(error: Error): string {
+  const withDetails = error as Error & {
+    authenticationFailed?: boolean;
+    code?: string;
+    responseStatus?: string;
+    responseText?: string;
+    serverResponseCode?: string;
+  };
+  const parts = [
+    withDetails.code ? `code=${withDetails.code}` : null,
+    withDetails.responseStatus ? `status=${withDetails.responseStatus}` : null,
+    withDetails.serverResponseCode ? `server=${withDetails.serverResponseCode}` : null,
+    withDetails.authenticationFailed ? "authentication failed" : null,
+    withDetails.responseText ?? null
+  ].filter(Boolean);
+  return parts.join("; ");
 }
 
 async function pollSource(settings: Settings, source: Source, client: ImapFlow, options: { limit?: number }): Promise<PollResult> {

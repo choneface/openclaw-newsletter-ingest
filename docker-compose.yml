@@ -1,0 +1,30 @@
+services:
+  oni:
+    build:
+      context: .
+    image: openclaw-newsletter-ingest:local
+    env_file:
+      - ${OPENCLAW_ENV_FILE:-/Users/gavingarcia/.oni/openclaw.env}
+    environment:
+      ONI_HOME: /oni
+      OPENCLAW_ENV_IN_CONTAINER: /run/secrets/openclaw.env
+    volumes:
+      - ./.docker/oni-home:/oni
+      - ${OPENCLAW_ENV_FILE:-/Users/gavingarcia/.oni/openclaw.env}:/run/secrets/openclaw.env:ro
+
+  init-poller:
+    image: openclaw-newsletter-ingest:local
+    build:
+      context: .
+    env_file:
+      - ${OPENCLAW_ENV_FILE:-/Users/gavingarcia/.oni/openclaw.env}
+    environment:
+      ONI_HOME: /oni
+      OPENCLAW_ENV_IN_CONTAINER: /run/secrets/openclaw.env
+      POLLER_SLUG: ${POLLER_SLUG:-docker-test}
+      INTERVAL_MINUTES: ${INTERVAL_MINUTES:-30}
+      ANALYZER_PROVIDER: ${ANALYZER_PROVIDER:-mock}
+    volumes:
+      - ./.docker/oni-home:/oni
+      - ${OPENCLAW_ENV_FILE:-/Users/gavingarcia/.oni/openclaw.env}:/run/secrets/openclaw.env:ro
+    entrypoint: ["tini", "--", "scripts/docker-init-poller.sh"]

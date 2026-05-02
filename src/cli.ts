@@ -20,6 +20,7 @@ program.command("init")
   .argument("<slug>", "poller slug")
   .option("--interval-minutes <minutes>", "polling interval", parseNumber, 30)
   .option("--openclaw-env <path>", "path to openclaw .env")
+  .option("--analyzer-provider <provider>", "analyzer provider", "anthropic")
   .option("--force", "overwrite existing template files")
   .action((slug, options) => {
     const home = homeFromProgram();
@@ -28,6 +29,7 @@ program.command("init")
       home,
       intervalMinutes: options.intervalMinutes,
       openclawEnv: options.openclawEnv,
+      analyzerProvider: options.analyzerProvider,
       force: Boolean(options.force)
     });
     initDb(resolve(root, "newsletters.db"));
@@ -150,7 +152,7 @@ program.parseAsync().catch((error: unknown) => {
 
 function runtime(slug: string) {
   const cfg = loadPoller(slug, { home: homeFromProgram() });
-  if (cfg.provider !== "anthropic") throw new Error(`unsupported analyzer provider: ${cfg.provider}`);
+  if (!["anthropic", "mock"].includes(cfg.provider)) throw new Error(`unsupported analyzer provider: ${cfg.provider}`);
   return {
     cfg,
     sources: loadSources(cfg.sourcesPath),
@@ -166,7 +168,7 @@ async function parse(cfg: PollerConfig, prompt: string, options: { limit?: numbe
     const rows = unparsedEmails(db, options);
     for (const row of rows) {
       try {
-        const events = await extractEvents(cfg.settings, prompt, row);
+        const events = await extractEvents(cfg.provider, cfg.settings, prompt, row);
         const count = insertEvents(db, row.id, row.source, events);
         markEmailParsed(db, row.id);
         parsed += 1;

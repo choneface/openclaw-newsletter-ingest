@@ -1,0 +1,9 @@
+.docker
+.git
+dist
+node_modules
+npm-debug.log
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
