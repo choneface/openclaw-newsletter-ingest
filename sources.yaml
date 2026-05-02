@@ -1,13 +1,13 @@
-# Newsletter sources to poll.
+# Legacy example sources. New pollers get their own sources.yaml under:
+# ~/.oni/pollers/<slug>/sources.yaml
 #
 # Each entry is one source. To add a new source, append a new entry and
-# re-run `nli poll`. The `gmail_query` is Gmail's full search syntax
+# re-run `oni poll`. The `gmail_query` is Gmail's full search syntax
 # (https://support.google.com/mail/answer/7190) — anything you can type
 # into Gmail's search bar works.
 #
-# `parser` selects which extraction pipeline to use. Default works for
-# most NYC event newsletters. To add a custom parser, drop a module under
-# `src/openclaw_newsletter_ingest/parsers/` and reference its name here.
+# `parser` is reserved for source-specific analyzer dispatch. The current
+# TypeScript implementation uses default_event_extractor.
 
 - name: coolstuffnyc
   description: Cool Stuff NYC newsletter — weekly NYC events
@@ -21,7 +21,7 @@
 # Use this to validate the pipeline end-to-end without waiting for a real
 # newsletter — just send yourself an email with a fake event in the body.
 - name: _self_test
-  description: Test source — emails from GMAIL_USER to itself, tagged [nli-test] in subject
-  gmail_query: 'subject:"[nli-test]"'
+  description: Test source — emails from GMAIL_USER to itself, tagged [oni-test] in subject
+  gmail_query: 'subject:"[oni-test]"'
   parser: default_event_extractor
   enabled: true

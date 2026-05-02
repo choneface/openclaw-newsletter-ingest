@@ -3,12 +3,14 @@
 *.local
 .venv/
 venv/
+node_modules/
+dist/
+coverage/
 __pycache__/
 *.pyc
 *.pyo
 *.egg-info/
 build/
-dist/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/

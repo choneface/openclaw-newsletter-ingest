@@ -1,0 +1,41 @@
+{
+  "name": "@choneface/oni",
+  "version": "0.1.0",
+  "description": "OpenClaw Newsletter Ingest: poll newsletters, analyze them with an LLM, and store structured events in SQLite.",
+  "type": "module",
+  "bin": {
+    "oni": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "check": "tsc --noEmit",
+    "dev": "tsx src/cli.ts",
+    "test": "node --import tsx --test test/*.test.ts",
+    "prepack": "npm run build"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.92.0",
+    "better-sqlite3": "^11.7.0",
+    "commander": "^12.1.0",
+    "dotenv": "^16.4.7",
+    "imapflow": "^1.0.164",
+    "mailparser": "^3.7.2",
+    "yaml": "^2.6.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/mailparser": "^3.4.5",
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "license": "MIT"
+}

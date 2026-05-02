@@ -1,27 +1,63 @@
-# openclaw-newsletter-ingest
+# oni
 
-Polls Gmail for newsletters, extracts events with Claude Sonnet, stores them in SQLite for an [openclaw](https://github.com/hostinger/hvps-openclaw) agent to query.
-
-Built for one specific use case (NYC events for a weekendercrix agent), but the source registry and parser interface make it easy to fork for other domains.
+OpenClaw Newsletter Ingest: poll Gmail newsletters, analyze them with an LLM,
+and store structured event data in SQLite for OpenClaw agents to query.
 
 ## Architecture
 
 ```
-   cron (every 30 min)
+   systemd timer
         │
         ▼
-   nli run                          # poll + parse, on the VPS host
-   ├── poll  → IMAP fetch per source.yaml entry → emails table
-   └── parse → Claude Sonnet → events table
+   oni run <slug> --once
+   ├── poll  → IMAP fetch per sources.yaml entry → emails table
+   └── parse → prompt.md + analyzer config → events table
         │
         ▼
-   SQLite at $DB_PATH (inside the openclaw data volume)
+   SQLite in ~/.oni/pollers/<slug>/newsletters.db
         │
         ▼
-   weekendercrix `news-lookup` skill                # in-container query helper
+   OpenClaw agent query helper
 ```
 
-Code runs on the VPS host (Python venv); the SQLite DB lives in the openclaw data volume so the in-container agent can read it directly.
+Code runs on the VPS host as a Node CLI installed with npm.
+
+## Install
+
+```sh
+npm install -g @choneface/oni
+```
+
+For local development:
+
+```sh
+npm install
+npm run build
+npm test
+```
+
+## Create A Poller
+
+```sh
+oni init weekendercrix --interval-minutes 30 --openclaw-env /docker/openclaw-874u/.env
+```
+
+This creates:
+
+```text
+~/.oni/
+  config.yaml
+  pollers/
+    weekendercrix/
+      poller.yaml
+      sources.yaml
+      prompt.md
+      newsletters.db
+      logs/
+```
+
+Edit `poller.yaml` for model/API/provider settings, `sources.yaml` for Gmail
+queries, and `prompt.md` for the analyzer instructions.
 
 ## Onboarding a new source
 
@@ -35,54 +71,48 @@ Edit `sources.yaml`:
   enabled: true
 ```
 
-Commit, pull on the VPS, run `nli run`. That's it.
+Run `oni run weekendercrix --once` to test it.
 
 `gmail_query` accepts anything Gmail's search bar accepts — `from:`, `to:`, `subject:`, `label:`, `after:`, `older_than:`, parentheses, `OR`, `-`. See [Gmail's search reference](https://support.google.com/mail/answer/7190).
 
 ## Custom parsing logic
 
-The default parser (`extract_events` in `parser.py`) handles most NYC newsletters with one prompt. If you need source-specific extraction — different schema, custom post-processing, a tighter prompt — drop a module under `src/openclaw_newsletter_ingest/parsers/` and reference its name in `sources.yaml`. The dispatch lookup is intentionally simple; extend it when you need it.
-
-## Local install
-
-```sh
-git clone https://github.com/choneface/openclaw-newsletter-ingest
-cd openclaw-newsletter-ingest
-python3 -m venv .venv && .venv/bin/pip install -e .
-cp .env.example .env && $EDITOR .env       # GMAIL_USER, GMAIL_APP_PASSWORD, etc.
-.venv/bin/nli init-db
-.venv/bin/nli run
-```
+The default analyzer uses `prompt.md` plus the source metadata in
+`sources.yaml` to extract events from most NYC newsletters. If a source needs
+different extraction behavior, create a separate poller with a tailored
+`prompt.md` or extend `src/analyzer.ts` and the `parser` dispatch in
+`sources.yaml`.
 
 You'll need:
 - A Gmail account with **2FA enabled** (required for app passwords)
 - An app password from https://myaccount.google.com/apppasswords
 - An Anthropic API key
 
-## VPS install (using [ovps](https://github.com/choneface/ovps))
+## Run On The VPS
 
 ```sh
-ovps exec 'cd /opt && git clone https://github.com/choneface/openclaw-newsletter-ingest && cd openclaw-newsletter-ingest && bash scripts/install.sh'
-ovps exec 'nano /opt/openclaw-newsletter-ingest/.env'    # set GMAIL_*; ANTHROPIC_API_KEY auto-resolves from openclaw
-ovps exec 'cd /opt/openclaw-newsletter-ingest && .venv/bin/nli run'
+npm install -g @choneface/oni
+oni init weekendercrix --openclaw-env /docker/openclaw-874u/.env
+oni run weekendercrix --once
+oni start weekendercrix
 ```
 
-Cron (30 min cadence):
-```cron
-*/30 * * * * cd /opt/openclaw-newsletter-ingest && .venv/bin/nli run >> /var/log/nli.log 2>&1
-```
+`oni start <slug>` writes a systemd service/timer pair named
+`oni-<slug>.service` and `oni-<slug>.timer`.
 
 ## CLI
 
 ```
-nli init-db                              create the schema
-nli sources                              list configured sources
-nli poll [--source S] [--limit N]        fetch new emails
-nli parse [--limit N]                    run Claude on unparsed emails
-nli run                                  poll + parse (cron entry point)
-nli query [--from D] [--to D]            read events as JSON
-       [--source S] [--neighborhood N]
-       [--limit N]
+oni init <slug>                          create a poller folder
+oni sources <slug>                       list configured sources
+oni poll <slug> [--source S] [--limit N] fetch new emails
+oni parse <slug> [--limit N]             analyze unparsed emails
+oni run <slug> --once                    poll + parse once
+oni query <slug> [--from D] [--to D]     read events as JSON
+oni start <slug>                         enable systemd timer
+oni stop <slug>                          disable systemd timer
+oni status <slug>                        show timer status
+oni logs <slug>                          show service logs
 ```
 
 ## DB schema
@@ -93,20 +123,23 @@ nli query [--from D] [--to D]            read events as JSON
 Re-parse a single email by clearing its `parsed_at`:
 ```sh
 sqlite3 $DB_PATH "UPDATE emails SET parsed_at=NULL, parse_error=NULL WHERE id=42; DELETE FROM events WHERE email_id=42;"
-nli parse
+oni parse weekendercrix
 ```
 
 ## Configuration
 
-See `.env.example`. Notable:
+Each poller has a `poller.yaml`:
 
-| Var | Notes |
-|---|---|
-| `GMAIL_USER` / `GMAIL_APP_PASSWORD` | App password, not your account password |
-| `ANTHROPIC_API_KEY` | Leave blank on the VPS — `OPENCLAW_ENV` resolves it |
-| `OPENCLAW_ENV` | Path to openclaw's docker-compose `.env`; we read the API key from there |
-| `CLAUDE_MODEL` | Defaults to `claude-sonnet-4-6` |
-| `DB_PATH` | Where the SQLite db lives. On the VPS this should be inside the openclaw data volume so the agent can read it. |
+```yaml
+analyzer:
+  provider: anthropic
+  api_key_env: ANTHROPIC_API_KEY
+  model: claude-sonnet-4-6
+  prompt: prompt.md
+```
+
+Secrets are read from environment variables, optionally after loading
+`openclaw_env`.
 
 ## License
 
