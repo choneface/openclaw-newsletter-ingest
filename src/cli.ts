@@ -10,6 +10,7 @@ import {
   DEFAULT_SEMANTIC_CONFIG,
   type OutputSchema,
   type PollerConfig,
+  addSource,
   formatOutputSchema,
   initPoller,
   listPollerSlugs,
@@ -78,6 +79,15 @@ program.command("update")
   .allowUnknownOption(true)
   .description("update a poller by applying key=value changes")
   .action((slug, changes) => updatePoller(slug, changes));
+
+program.command("add-poller")
+  .argument("<slug>", "namespace slug")
+  .argument("<name>", "poller name inside the namespace")
+  .requiredOption("--query <gmail-query>", "Gmail search query; repeat for multiple queries", collectOption, [])
+  .option("--description <text>", "human-readable source description", "")
+  .option("--parser <parser>", "parser dispatch key", "default_event_extractor")
+  .description("add a Gmail newsletter poller to a namespace")
+  .action((slug, name, options) => addNamespacePoller(slug, name, options));
 
 program.command("start")
   .argument("[slug]", "poller slug")
@@ -159,10 +169,23 @@ program.command("logs")
     journalctl(args);
   });
 
-program.parseAsync().catch((error: unknown) => {
+program.parseAsync(rewriteNamespacePollerArgs(process.argv)).catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
 });
+
+function addNamespacePoller(slug: string, name: string, options: { query: string[]; description?: string; parser?: string }): void {
+  const cfg = loadPoller(slug, { home: homeFromProgram(), requireSecrets: false });
+  const source = addSource(cfg.sourcesPath, {
+    name,
+    description: options.description,
+    gmailQueries: options.query,
+    parser: options.parser
+  });
+  console.log(`added poller ${source.name} to ${slug}`);
+  console.log(`queries=${source.gmailQueries.length}`);
+  console.log(`edit ${cfg.sourcesPath}`);
+}
 
 function updatePoller(slug: string, changes: string[]): void {
   if (changes.length === 0) throw new Error("expected at least one key=value change");
@@ -312,8 +335,40 @@ function parseNumber(value: string): number {
   return parsed;
 }
 
+function collectOption(value: string, previous: string[]): string[] {
+  return [...previous, value];
+}
+
 function homeFromProgram(): string {
   return oniHome(program.opts<{ home?: string }>().home);
+}
+
+function rewriteNamespacePollerArgs(argv: string[]): string[] {
+  const args = argv.slice(2);
+  const namespaceIndex = firstPositionalIndex(args);
+  if (namespaceIndex === -1) return argv;
+  if (args[namespaceIndex + 1] !== "add" || args[namespaceIndex + 2] !== "poller") return argv;
+  return [
+    ...argv.slice(0, 2),
+    ...args.slice(0, namespaceIndex),
+    "add-poller",
+    args[namespaceIndex],
+    ...args.slice(namespaceIndex + 3)
+  ];
+}
+
+function firstPositionalIndex(args: string[]): number {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--home" || arg === "--log-level") {
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--home=") || arg.startsWith("--log-level=")) continue;
+    if (arg.startsWith("-")) continue;
+    return index;
+  }
+  return -1;
 }
 
 function readPackageVersion(): string {

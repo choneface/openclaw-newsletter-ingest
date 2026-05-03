@@ -103,7 +103,7 @@ function errorDetails(error: Error): string {
 }
 
 async function pollSource(settings: Settings, source: Source, client: ImapFlow, options: { limit?: number }): Promise<PollResult> {
-  const uids = (await client.search({ gmailRaw: source.gmailQuery } as never)) || [];
+  const uids = await searchSourceUids(client, source);
   const selected = options.limit ? uids.slice(0, options.limit) : uids;
   if (selected.length === 0) return { source: source.name, fetched: 0, new: 0 };
   let fetched = 0;
@@ -133,4 +133,19 @@ async function pollSource(settings: Settings, source: Source, client: ImapFlow, 
   } finally {
     db.close();
   }
+}
+
+async function searchSourceUids(client: ImapFlow, source: Source): Promise<number[]> {
+  const seen = new Set<string>();
+  const uids: number[] = [];
+  for (const query of source.gmailQueries) {
+    const matches = (await client.search({ gmailRaw: query } as never)) || [];
+    for (const uid of matches) {
+      const key = String(uid);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      uids.push(uid);
+    }
+  }
+  return uids;
 }

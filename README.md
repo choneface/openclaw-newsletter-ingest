@@ -21,6 +21,12 @@ query.
    OpenClaw agents read SQLite directly
 ```
 
+An ONI namespace is the thing agents query later, such as `ai-news`,
+`nyc-events`, or `founder-updates`. Each namespace has one database, one output
+schema, one parsing prompt, and one schedule. Inside a namespace, you can add
+many named newsletter pollers. Each poller tracks one source and can use one or
+more Gmail queries to find matching emails.
+
 Code runs on the VPS host as a Node CLI installed with npm.
 
 ## Install
@@ -41,7 +47,7 @@ npm run build
 npm test
 ```
 
-## Create A Poller
+## Create A Namespace
 
 ```sh
 oni init newsletter-demo --interval-minutes 30 --openclaw-env /path/to/openclaw.env --parsing-prompt "Extract NYC events as JSON."
@@ -119,9 +125,27 @@ oni update deals parsing-prompt="Extract retail deals as JSON."
 For column changes, edit `schema.yaml`; ONI will initialize the configured table
 the next time the poller runs.
 
-## Onboarding a new source
+## Add Newsletter Pollers
 
-Edit `sources.yaml`:
+Add each newsletter to the namespace as a named poller:
+
+```sh
+oni newsletter-demo add poller timeout-nyc \
+  --description "TimeOut NYC weekly picks" \
+  --query 'from:newsletter@timeout.com'
+```
+
+Use multiple `--query` flags when a newsletter needs more than one Gmail search
+to catch the right messages:
+
+```sh
+oni ai-news add poller ben-evans \
+  --description "Benedict Evans newsletter" \
+  --query 'from:newsletter@ben-evans.com' \
+  --query 'subject:"Benedict Evans"'
+```
+
+This appends entries to `sources.yaml`. You can also edit the file directly:
 
 ```yaml
 - name: timeout-nyc
@@ -129,11 +153,21 @@ Edit `sources.yaml`:
   gmail_query: 'from:newsletter@timeout.com'   # Gmail search syntax
   parser: default_event_extractor
   enabled: true
+
+- name: ben-evans
+  description: Benedict Evans newsletter
+  gmail_queries:
+    - 'from:newsletter@ben-evans.com'
+    - 'subject:"Benedict Evans"'
+  parser: default_event_extractor
+  enabled: true
 ```
 
 Run `oni start newsletter-demo` to let systemd run it on the configured interval.
 
-`gmail_query` accepts anything Gmail's search bar accepts — `from:`, `to:`, `subject:`, `label:`, `after:`, `older_than:`, parentheses, `OR`, `-`. See [Gmail's search reference](https://support.google.com/mail/answer/7190).
+`gmail_query` and `gmail_queries` accept anything Gmail's search bar accepts:
+`from:`, `to:`, `subject:`, `label:`, `after:`, `older_than:`, parentheses,
+`OR`, `-`. See [Gmail's search reference](https://support.google.com/mail/answer/7190).
 
 ## Custom parsing logic
 
@@ -157,7 +191,7 @@ the model request and expects JSON like:
 ```
 
 If a source needs different extraction behavior from other sources, create a
-separate poller with a tailored `prompt.md`/`schema.yaml` or extend
+separate namespace with a tailored `prompt.md`/`schema.yaml` or extend
 `src/analyzer.ts` and the `parser` dispatch in `sources.yaml`.
 
 ## Semantic Search
@@ -236,8 +270,10 @@ OPENCLAW_ENV_FILE=/path/to/openclaw.env docker compose run --rm --entrypoint nod
 ```
 oni --version                            show installed version
 oni --help                               show commands
-oni init <slug>                          create a poller folder
-oni update <slug> key=value [...]        update selected poller settings
+oni init <slug>                          create a namespace folder
+oni update <slug> key=value [...]        update selected namespace settings
+oni <slug> add poller <name> --query Q   add a newsletter poller to a namespace
+oni add-poller <slug> <name> --query Q   same as above, easier for scripts
 oni status                               show every configured poller
 oni status -w                            refresh status every second
 oni start <slug>                         enable a systemd timer

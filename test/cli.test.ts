@@ -34,6 +34,7 @@ test("oni help shows the compact public CLI", () => {
 
   assert.match(help, /init/);
   assert.match(help, /update/);
+  assert.match(help, /add-poller/);
   assert.match(help, /status/);
   assert.match(help, /start/);
   assert.match(help, /query/);
@@ -43,6 +44,40 @@ test("oni help shows the compact public CLI", () => {
   assert.doesNotMatch(help, /^\s+poll\b/m);
   assert.doesNotMatch(help, /^\s+parse\b/m);
   assert.doesNotMatch(help, /^\s+index\b/m);
+});
+
+test("oni namespace add poller appends a Gmail poller to sources", () => {
+  const home = mkdtempSync(join(tmpdir(), "oni-cli-"));
+  execFileSync("node", ["--import", "tsx", "src/cli.ts", "--home", home, "init", "ai-news"], {
+    cwd: process.cwd(),
+    encoding: "utf8"
+  });
+  execFileSync("node", [
+    "--import",
+    "tsx",
+    "src/cli.ts",
+    "--home",
+    home,
+    "ai-news",
+    "add",
+    "poller",
+    "ben-evans",
+    "--description",
+    "Benedict Evans newsletter",
+    "--query",
+    "from:newsletter@ben-evans.com",
+    "--query",
+    "subject:\"Benedict Evans\""
+  ], {
+    cwd: process.cwd(),
+    encoding: "utf8"
+  });
+  const sources = readFileSync(join(home, "pollers", "ai-news", "sources.yaml"), "utf8");
+
+  assert.match(sources, /name: ben-evans/);
+  assert.match(sources, /gmail_queries:/);
+  assert.match(sources, /from:newsletter@ben-evans\.com/);
+  assert.match(sources, /subject:"Benedict Evans"/);
 });
 
 test("oni reports its package version", () => {

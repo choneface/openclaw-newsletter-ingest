@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { initPoller, loadOutputSchema, loadPoller, loadSources } from "../src/config.js";
+import { addSource, initPoller, loadOutputSchema, loadPoller, loadSources } from "../src/config.js";
 
 test("initPoller creates editable poller files", () => {
   const home = mkdtempSync(join(tmpdir(), "oni-config-"));
@@ -22,6 +22,7 @@ test("initPoller creates editable poller files", () => {
   assert.equal(cfg.output.rootKey, "events");
   assert.equal(loadOutputSchema(cfg.schemaPath).columns[0]?.name, "name");
   assert.equal(loadSources(cfg.sourcesPath)[0]?.name, "_self_test");
+  assert.deepEqual(loadSources(cfg.sourcesPath)[0]?.gmailQueries, ['subject:"[oni-test]"']);
 });
 
 test("initPoller can create mock analyzer pollers for smoke tests", () => {
@@ -53,4 +54,37 @@ test("initPoller can template a custom parsed output schema", () => {
   assert.equal(cfg.output.recordName, "deal");
   assert.equal(cfg.output.table, "deals");
   assert.equal(cfg.output.columns[1]?.index, true);
+});
+
+test("loadSources accepts one or many Gmail queries per source", () => {
+  const home = mkdtempSync(join(tmpdir(), "oni-config-"));
+  const path = join(home, "sources.yaml");
+  writeFileSync(path, `- name: single
+  gmail_query: from:single@example.com
+- name: multi
+  gmail_queries:
+    - from:multi@example.com
+    - subject:"Multi Newsletter"
+    - subject:"Multi Newsletter"
+`);
+
+  const sources = loadSources(path);
+
+  assert.deepEqual(sources[0]?.gmailQueries, ["from:single@example.com"]);
+  assert.deepEqual(sources[1]?.gmailQueries, ["from:multi@example.com", 'subject:"Multi Newsletter"']);
+});
+
+test("addSource appends a namespace poller with multiple queries", () => {
+  const home = mkdtempSync(join(tmpdir(), "oni-config-"));
+  initPoller({ slug: "ai-news", home, intervalMinutes: 15 });
+  const cfg = loadPoller("ai-news", { home, requireSecrets: false });
+
+  addSource(cfg.sourcesPath, {
+    name: "ben-evans",
+    description: "Benedict Evans newsletter",
+    gmailQueries: ["from:newsletter@ben-evans.com", 'subject:"Benedict Evans"']
+  });
+
+  const added = loadSources(cfg.sourcesPath).find((source) => source.name === "ben-evans");
+  assert.deepEqual(added?.gmailQueries, ["from:newsletter@ben-evans.com", 'subject:"Benedict Evans"']);
 });

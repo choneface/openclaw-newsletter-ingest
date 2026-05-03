@@ -21,7 +21,7 @@ export type OutputSchema = {
 export type Source = {
   name: string;
   description: string;
-  gmailQuery: string;
+  gmailQueries: string[];
   parser: string;
   enabled: boolean;
 };
@@ -292,13 +292,31 @@ export function loadSources(path: string): Source[] {
   if (!Array.isArray(raw)) throw new Error(`${path} must contain a YAML list`);
   return raw
     .filter((entry) => entry.enabled !== false)
-    .map((entry) => ({
-      name: String(entry.name),
-      description: String(entry.description ?? ""),
-      gmailQuery: String(entry.gmail_query ?? entry.gmailQuery),
-      parser: String(entry.parser ?? "default_event_extractor"),
-      enabled: entry.enabled !== false
-    }));
+    .map((entry) => normalizeSource(entry, path));
+}
+
+export function addSource(path: string, source: {
+  name: string;
+  description?: string;
+  gmailQueries: string[];
+  parser?: string;
+  enabled?: boolean;
+}): Source {
+  const raw = YAML.parse(readFileSync(path, "utf8")) ?? [];
+  if (!Array.isArray(raw)) throw new Error(`${path} must contain a YAML list`);
+  const existing = raw.map((entry) => String(entry?.name ?? ""));
+  if (existing.includes(source.name)) throw new Error(`poller already exists in namespace: ${source.name}`);
+
+  const normalized = normalizeSource({
+    name: source.name,
+    description: source.description ?? "",
+    gmail_queries: source.gmailQueries,
+    parser: source.parser ?? "default_event_extractor",
+    enabled: source.enabled ?? true
+  }, path);
+  raw.push(formatSourceForYaml(normalized));
+  writeFileSync(path, YAML.stringify(raw));
+  return normalized;
 }
 
 export function readPrompt(path: string): string {
@@ -346,6 +364,40 @@ export function formatOutputSchema(schema: OutputSchema): string {
       ...(column.index ? { index: true } : {})
     }))
   });
+}
+
+function normalizeSource(entry: Record<string, unknown>, path: string): Source {
+  const name = String(entry.name ?? "").trim();
+  if (!name) throw new Error(`${path} source name is required`);
+  const queries = normalizeGmailQueries(entry, path, name);
+  return {
+    name,
+    description: String(entry.description ?? ""),
+    gmailQueries: queries,
+    parser: String(entry.parser ?? "default_event_extractor"),
+    enabled: entry.enabled !== false
+  };
+}
+
+function normalizeGmailQueries(entry: Record<string, unknown>, path: string, name: string): string[] {
+  const rawQueries = entry.gmail_queries ?? entry.gmailQueries;
+  const queries = Array.isArray(rawQueries)
+    ? rawQueries.map((query) => String(query).trim()).filter(Boolean)
+    : [String(entry.gmail_query ?? entry.gmailQuery ?? "").trim()].filter(Boolean);
+  if (queries.length === 0) throw new Error(`${path} source ${name} must define gmail_query or gmail_queries`);
+  return Array.from(new Set(queries));
+}
+
+function formatSourceForYaml(source: Source): Record<string, unknown> {
+  return {
+    name: source.name,
+    ...(source.description ? { description: source.description } : {}),
+    ...(source.gmailQueries.length === 1
+      ? { gmail_query: source.gmailQueries[0] }
+      : { gmail_queries: source.gmailQueries }),
+    parser: source.parser,
+    enabled: source.enabled
+  };
 }
 
 function resolvePollerPath(root: string, value: string): string {
