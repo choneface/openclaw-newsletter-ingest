@@ -24,6 +24,7 @@ const program = new Command();
 program
   .name("oni")
   .description("OpenClaw Newsletter Ingest")
+  .version(readPackageVersion())
   .option("--home <path>", "ONI home directory")
   .option("--log-level <level>", "log level");
 
@@ -313,6 +314,13 @@ function parseNumber(value: string): number {
 
 function homeFromProgram(): string {
   return oniHome(program.opts<{ home?: string }>().home);
+}
+
+function readPackageVersion(): string {
+  const modulePath = fileURLToPath(import.meta.url);
+  const packagePath = resolve(dirname(modulePath), "..", "package.json");
+  const pkg = JSON.parse(readFileSync(packagePath, "utf8")) as { version?: string };
+  return pkg.version ?? "0.0.0";
 }
 
 function currentCycleCommand(): string {

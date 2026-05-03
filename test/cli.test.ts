@@ -45,6 +45,24 @@ test("oni help shows the compact public CLI", () => {
   assert.doesNotMatch(help, /^\s+index\b/m);
 });
 
+test("oni reports its package version", () => {
+  const version = execFileSync("node", ["--import", "tsx", "src/cli.ts", "--version"], {
+    cwd: process.cwd(),
+    encoding: "utf8"
+  });
+
+  assert.match(version.trim(), /^\d+\.\d+\.\d+$/);
+});
+
+test("oni init help includes prompt configuration", () => {
+  const help = execFileSync("node", ["--import", "tsx", "src/cli.ts", "init", "--help"], {
+    cwd: process.cwd(),
+    encoding: "utf8"
+  });
+
+  assert.match(help, /--parsing-prompt <prompt>/);
+});
+
 test("low-level commands do not exist", () => {
   for (const command of ["sources", "schema", "schema-set", "schema-add-column", "poll", "parse", "run", "index", "stop"]) {
     const result = spawnSync("node", ["--import", "tsx", "src/cli.ts", command], {

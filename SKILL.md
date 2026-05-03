@@ -12,6 +12,7 @@ ONI is an ingestion service. The CLI is intentionally small and should not expos
 Use only these commands:
 
 ```sh
+oni --version
 oni --help
 oni init <namespace> [options]
 oni update <namespace> key=value [...]
@@ -25,6 +26,8 @@ oni logs <namespace> [-f] [-n <lines>]
 ```
 
 Do not use or recreate low-level CLI verbs such as `poll`, `parse`, `run`, `index`, `schema`, `sources`, or `stop`. Those stages are implementation details.
+
+The command surface documented here requires `@choneface/oni` v0.0.4 or newer.
 
 ## Poller Lifecycle
 

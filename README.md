@@ -25,6 +25,10 @@ Code runs on the VPS host as a Node CLI installed with npm.
 
 ## Install
 
+ONI requires Node 20 or newer. The install may appear to work on Node 18, but
+current transitive logging dependencies declare Node 20 as their supported
+runtime.
+
 ```sh
 npm install -g @choneface/oni
 ```
@@ -230,6 +234,7 @@ OPENCLAW_ENV_FILE=/path/to/openclaw.env docker compose run --rm --entrypoint nod
 ## CLI
 
 ```
+oni --version                            show installed version
 oni --help                               show commands
 oni init <slug>                          create a poller folder
 oni update <slug> key=value [...]        update selected poller settings
