@@ -61,11 +61,18 @@ export function systemctlShow(unit: string): Record<string, string> {
   return props;
 }
 
-export function parseSystemdUsec(value: string | undefined): string | null {
+export function parseSystemdTime(value: string | undefined): string | null {
   if (!value) return null;
-  const usec = Number(value);
-  if (!Number.isFinite(usec) || usec <= 0) return null;
-  return new Date(Math.round(usec / 1000)).toISOString();
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "0" || trimmed === "n/a") return null;
+  if (/^\d+$/.test(trimmed)) {
+    const usec = Number(trimmed);
+    if (!Number.isFinite(usec) || usec <= 0) return null;
+    return new Date(Math.round(usec / 1000)).toISOString();
+  }
+  const parsed = Date.parse(trimmed);
+  if (Number.isNaN(parsed)) return null;
+  return new Date(parsed).toISOString();
 }
 
 export function journalctl(args: string[]): void {

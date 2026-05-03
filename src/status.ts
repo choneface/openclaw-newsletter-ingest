@@ -1,7 +1,7 @@
 import { connect } from "./db.js";
 import { loadPoller, loadSources, type Source } from "./config.js";
 import {
-  parseSystemdUsec,
+  parseSystemdTime,
   serviceName,
   systemctlShow,
   timerName
@@ -49,7 +49,7 @@ export type PollerStatus = {
 
 export function collectStatus(slug: string, home: string): PollerStatus {
   const cfg = loadPoller(slug, { home, requireSecrets: false });
-  const timer = collectTimerStatus(slug);
+  const timer = collectTimerStatus(slug, cfg.intervalMinutes);
   const service = collectServiceStatus(slug);
   const sources = safeLoadSources(cfg.sourcesPath);
 
@@ -111,14 +111,24 @@ export function formatStatusText(status: PollerStatus): string {
   return lines.join("\n");
 }
 
-function collectTimerStatus(slug: string): PollerStatus["timer"] {
+function collectTimerStatus(slug: string, intervalMinutes: number): PollerStatus["timer"] {
   const props = systemctlShow(timerName(slug));
   const loaded = props.LoadState && props.LoadState !== "not-found";
+  const lastRunAt = parseSystemdTime(props.LastTriggerUSec);
+  const nextRunAt = parseSystemdTime(props.NextElapseUSecRealtime)
+    ?? deriveNextRun(lastRunAt, intervalMinutes);
   return {
     state: loaded ? (props.ActiveState || "unknown") : "not-installed",
-    next_run_at: parseSystemdUsec(props.NextElapseUSecRealtime),
-    last_run_at: parseSystemdUsec(props.LastTriggerUSec)
+    next_run_at: nextRunAt,
+    last_run_at: lastRunAt
   };
+}
+
+function deriveNextRun(lastRunAt: string | null, intervalMinutes: number): string | null {
+  if (!lastRunAt || !Number.isFinite(intervalMinutes) || intervalMinutes <= 0) return null;
+  const last = Date.parse(lastRunAt);
+  if (Number.isNaN(last)) return null;
+  return new Date(last + intervalMinutes * 60_000).toISOString();
 }
 
 function collectServiceStatus(slug: string): PollerStatus["service"] {
@@ -129,8 +139,8 @@ function collectServiceStatus(slug: string): PollerStatus["service"] {
     state: loaded ? (props.ActiveState || "unknown") : "not-installed",
     last_result: props.Result || null,
     last_exit_code: Number.isFinite(exit) ? (exit as number) : null,
-    last_started_at: parseRfcTimestamp(props.ExecMainStartTimestamp),
-    last_finished_at: parseRfcTimestamp(props.ExecMainExitTimestamp)
+    last_started_at: parseSystemdTime(props.ExecMainStartTimestamp),
+    last_finished_at: parseSystemdTime(props.ExecMainExitTimestamp)
   };
 }
 
@@ -267,10 +277,3 @@ function truncate(value: string, limit: number): string {
   return `${collapsed.slice(0, limit - 1)}…`;
 }
 
-function parseRfcTimestamp(value: string | undefined): string | null {
-  if (!value) return null;
-  if (value === "0" || value === "n/a") return null;
-  const parsed = Date.parse(value);
-  if (Number.isNaN(parsed)) return null;
-  return new Date(parsed).toISOString();
-}
