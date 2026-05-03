@@ -91,6 +91,9 @@ Before bumping `version` in `package.json` and pushing a `v*` tag:
    sections you touched.
 4. `CLAUDE.md` / `AGENTS.md` still describe the architecture and module
    map accurately.
+5. Commit the version bump and release changes, create an annotated tag named
+   `v<package.json version>`, and push that tag. The `v*` tag push is what
+   triggers the publish workflow.
 
 CI lints and tests on push; the publish workflow runs on a `v*` tag push.
 

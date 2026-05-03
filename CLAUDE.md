@@ -77,7 +77,7 @@ operator which version number to use:
 - **Patch** (`0.0.x`): bug fixes, docs, tests, dependency maintenance, and
   internal refactors that do not change the public contract.
 
-Before bumping `version` in `package.json` and pushing a tag:
+Before bumping `version` in `package.json` and pushing a `v*` tag:
 
 1. **`npm test`** passes locally.
 2. **`skills/oni-cli/SKILL.md` is up to date** — the commands list,
@@ -90,6 +90,9 @@ Before bumping `version` in `package.json` and pushing a tag:
 4. **`CLAUDE.md` / `AGENTS.md`** still describe the architecture and module
    map accurately. Update them if you moved code, added a module, or changed
    the namespace/poller model.
+5. **Push the release tag** — after committing the version bump and release
+   changes, create an annotated `v<package.json version>` tag and push it.
+   The `v*` tag push triggers the publish workflow.
 
 CI runs `npm run lint` and `npm test` on push (`.github/workflows`). The
 publish workflow runs on a `v*` tag push.
