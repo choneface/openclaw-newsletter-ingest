@@ -16,4 +16,4 @@ echo
 echo "Install complete."
 echo "  CLI: oni"
 echo "Next:"
-echo "  oni init weekendercrix --openclaw-env /docker/openclaw-874u/.env"
+echo "  oni init weekendercrix.spec.yaml"

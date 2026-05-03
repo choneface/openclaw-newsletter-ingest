@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import dotenv from "dotenv";
@@ -56,6 +56,18 @@ export type PollerConfig = {
   intervalMinutes: number;
   provider: string;
   semantic: SemanticConfig;
+};
+
+export type PollerTemplate = {
+  slug: string;
+  intervalMinutes: number;
+  openclawEnv?: string;
+  analyzerProvider?: string;
+  analyzerModel?: string;
+  prompt?: string;
+  semantic?: SemanticConfig;
+  schema?: OutputSchema;
+  sources?: Source[];
 };
 
 export const DEFAULT_PROMPT = `You extract NYC events from newsletter emails.
@@ -142,6 +154,7 @@ const DEFAULT_SOURCES = `# Newsletter sources for this poller.
 
 function defaultPollerYaml(slug: string, intervalMinutes: number, openclawEnv: string, options: {
   analyzerProvider?: string;
+  analyzerModel?: string;
   semantic?: SemanticConfig;
 } = {}): string {
   const semantic = options.semantic ?? DEFAULT_SEMANTIC_CONFIG;
@@ -161,7 +174,7 @@ imap:
 analyzer:
   provider: ${options.analyzerProvider ?? "anthropic"}
   api_key_env: ANTHROPIC_API_KEY
-  model: claude-sonnet-4-6
+  model: ${options.analyzerModel ?? "claude-sonnet-4-6"}
   prompt: prompt.md
   schema: schema.yaml
 
@@ -204,9 +217,11 @@ export function initPoller(options: {
   intervalMinutes: number;
   openclawEnv?: string;
   analyzerProvider?: string;
+  analyzerModel?: string;
   prompt?: string;
   semantic?: SemanticConfig;
   schema?: OutputSchema;
+  sources?: Source[];
   force?: boolean;
 }): string {
   ensureOniHome(options.home);
@@ -214,19 +229,25 @@ export function initPoller(options: {
   if (existsSync(root) && !options.force) {
     throw new Error(`poller already exists: ${options.slug}`);
   }
+  if (existsSync(root) && options.force) rmSync(root, { recursive: true, force: true });
   mkdirSync(join(root, "logs"), { recursive: true });
+  writePollerTemplate(root, options, Boolean(options.force));
+  return root;
+}
+
+function writePollerTemplate(root: string, template: PollerTemplate, force: boolean): void {
   writeTemplate(
     join(root, "poller.yaml"),
-    defaultPollerYaml(options.slug, options.intervalMinutes, options.openclawEnv ?? "", {
-      analyzerProvider: options.analyzerProvider ?? "anthropic",
-      semantic: options.semantic
+    defaultPollerYaml(template.slug, template.intervalMinutes, template.openclawEnv ?? "", {
+      analyzerProvider: template.analyzerProvider ?? "anthropic",
+      analyzerModel: template.analyzerModel,
+      semantic: template.semantic
     }),
-    Boolean(options.force)
+    force
   );
-  writeTemplate(join(root, "sources.yaml"), DEFAULT_SOURCES, Boolean(options.force));
-  writeTemplate(join(root, "prompt.md"), options.prompt ?? DEFAULT_PROMPT, Boolean(options.force));
-  writeTemplate(join(root, "schema.yaml"), formatOutputSchema(options.schema ?? DEFAULT_OUTPUT_SCHEMA), Boolean(options.force));
-  return root;
+  writeTemplate(join(root, "sources.yaml"), template.sources ? formatSources(template.sources) : DEFAULT_SOURCES, force);
+  writeTemplate(join(root, "prompt.md"), template.prompt ?? DEFAULT_PROMPT, force);
+  writeTemplate(join(root, "schema.yaml"), formatOutputSchema(template.schema ?? DEFAULT_OUTPUT_SCHEMA), force);
 }
 
 function writeTemplate(path: string, text: string, force: boolean): void {
@@ -398,6 +419,10 @@ function formatSourceForYaml(source: Source): Record<string, unknown> {
     parser: source.parser,
     enabled: source.enabled
   };
+}
+
+export function formatSources(sources: Source[]): string {
+  return YAML.stringify(sources.map(formatSourceForYaml));
 }
 
 function resolvePollerPath(root: string, value: string): string {

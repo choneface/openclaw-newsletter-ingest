@@ -21,7 +21,7 @@ Use only these commands:
 ```sh
 oni --help
 oni --version
-oni init <namespace> [options]
+oni init <spec.yaml> [--force]
 oni update <namespace> key=value [...]
 oni add-poller <namespace> <poller> --query <gmail-query> [--query ...] [--description <text>] [--parser <key>]
 oni start [namespace] [--all]
@@ -37,21 +37,42 @@ Do not use or recreate low-level CLI verbs such as `poll`, `parse`, `run`, `inde
 
 ## Namespace Lifecycle
 
-Create a namespace:
+Create a namespace from a shareable spec:
+
+```yaml
+namespace: weekend-nyc
+interval_minutes: 60
+openclaw_env: /path/to/openclaw.env
+prompt: |
+  Extract NYC weekend ideas as JSON.
+schema:
+  record_name: event
+  table: events
+  root_key: events
+  columns:
+    - name: name
+      type: text
+      required: true
+    - name: date
+      type: text
+      index: true
+    - name: link
+      type: text
+semantic:
+  provider: transformers
+  model: Xenova/all-MiniLM-L6-v2
+  dimensions: 384
+pollers:
+  - name: coolstuffnyc
+    description: Cool Stuff NYC weekly newsletter
+    gmail_query: from:coolstuffnyc@substack.com
+```
 
 ```sh
-oni init weekend-nyc \
-  --interval-minutes 60 \
-  --openclaw-env /path/to/openclaw.env \
-  --analyzer-provider anthropic \
-  --parsing-prompt "Extract NYC weekend ideas as JSON." \
-  --record-name event \
-  --table events \
-  --root-key events \
-  --semantic-provider transformers \
-  --semantic-model Xenova/all-MiniLM-L6-v2 \
-  --semantic-dimensions 384
+oni init weekend-nyc.spec.yaml
 ```
+
+`oni init` fails when the namespace already exists. `oni init <spec.yaml> --force` deletes the old namespace directory first, including its database and logs, then rebuilds it from the spec.
 
 Add a poller (Gmail source) to the namespace:
 
@@ -67,7 +88,7 @@ oni add-poller weekend-nyc moma \
 
 Pass `--query` multiple times to OR several Gmail queries into one poller.
 
-Update only fields that are changing:
+Update only fields that are changing. Do not regenerate and pass a whole spec just to update a prompt, model, interval, or naming value:
 
 ```sh
 oni update weekend-nyc parsing-prompt="Extract NYC weekend ideas as JSON."

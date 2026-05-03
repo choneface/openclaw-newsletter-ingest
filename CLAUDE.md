@@ -66,9 +66,15 @@ the shape (`test/cli.test.ts`).
 
 ## Release checklist
 
-This is pre-release software with one downstream consumer (the operator on
-the VPS) — backward compatibility is *not* a hard constraint, but **docs and
-tests are**.
+Follow semantic versioning for every release so agents do not need to ask the
+operator which version number to use:
+
+- **Major** (`x.0.0`): breaking changes to the public CLI, namespace/poller
+  config shape, database contract, `oni status` JSON, or agent-facing behavior.
+- **Minor** (`0.x.0`): backward-compatible public features, new flags, new
+  supported config/spec fields, or additive status/query/search capabilities.
+- **Patch** (`0.0.x`): bug fixes, docs, tests, dependency maintenance, and
+  internal refactors that do not change the public contract.
 
 Before bumping `version` in `package.json` and pushing a tag:
 

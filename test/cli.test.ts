@@ -1,13 +1,42 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
+function writeSpec(home: string, namespace: string, overrides = ""): string {
+  const path = join(home, `${namespace}.spec.yaml`);
+  writeFileSync(path, `namespace: ${namespace}
+interval_minutes: 30
+openclaw_env: /tmp/openclaw.env
+prompt: Extract useful records as JSON.
+schema:
+  record_name: event
+  table: events
+  root_key: events
+  columns:
+    - name: name
+      type: text
+      required: true
+    - name: neighborhood
+      type: text
+      index: true
+semantic:
+  provider: transformers
+  model: Xenova/all-MiniLM-L6-v2
+  dimensions: 384
+pollers:
+  - name: _self_test
+    gmail_query: 'subject:"[oni-test]"'
+${overrides}`);
+  return path;
+}
+
 test("oni init, status, and query work through the CLI", () => {
   const home = mkdtempSync(join(tmpdir(), "oni-cli-"));
-  execFileSync("node", ["--import", "tsx", "src/cli.ts", "--home", home, "init", "demo"], {
+  const spec = writeSpec(home, "demo");
+  execFileSync("node", ["--import", "tsx", "src/cli.ts", "--home", home, "init", spec], {
     cwd: process.cwd(),
     encoding: "utf8"
   });
@@ -29,7 +58,8 @@ test("oni init, status, and query work through the CLI", () => {
 
 test("oni status --json emits a structured payload for agents", () => {
   const home = mkdtempSync(join(tmpdir(), "oni-cli-"));
-  execFileSync("node", ["--import", "tsx", "src/cli.ts", "--home", home, "init", "demo"], {
+  const spec = writeSpec(home, "demo");
+  execFileSync("node", ["--import", "tsx", "src/cli.ts", "--home", home, "init", spec], {
     cwd: process.cwd(),
     encoding: "utf8"
   });
@@ -76,7 +106,8 @@ test("oni status --json emits a structured payload for agents", () => {
 
 test("oni status --json without slug returns an array", () => {
   const home = mkdtempSync(join(tmpdir(), "oni-cli-"));
-  execFileSync("node", ["--import", "tsx", "src/cli.ts", "--home", home, "init", "demo"], {
+  const spec = writeSpec(home, "demo");
+  execFileSync("node", ["--import", "tsx", "src/cli.ts", "--home", home, "init", spec], {
     cwd: process.cwd(),
     encoding: "utf8"
   });
@@ -112,7 +143,8 @@ test("oni help shows the compact public CLI", () => {
 
 test("oni namespace add poller appends a Gmail poller to sources", () => {
   const home = mkdtempSync(join(tmpdir(), "oni-cli-"));
-  execFileSync("node", ["--import", "tsx", "src/cli.ts", "--home", home, "init", "ai-news"], {
+  const spec = writeSpec(home, "ai-news");
+  execFileSync("node", ["--import", "tsx", "src/cli.ts", "--home", home, "init", spec], {
     cwd: process.cwd(),
     encoding: "utf8"
   });
@@ -153,13 +185,14 @@ test("oni reports its package version", () => {
   assert.match(version.trim(), /^\d+\.\d+\.\d+$/);
 });
 
-test("oni init help includes prompt configuration", () => {
+test("oni init help describes spec-based initialization", () => {
   const help = execFileSync("node", ["--import", "tsx", "src/cli.ts", "init", "--help"], {
     cwd: process.cwd(),
     encoding: "utf8"
   });
 
-  assert.match(help, /--parsing-prompt <prompt>/);
+  assert.match(help, /<spec>/);
+  assert.match(help, /--force/);
 });
 
 test("low-level commands do not exist", () => {
@@ -181,7 +214,8 @@ test("low-level commands do not exist", () => {
 
 test("oni update configures parsed output through the CLI", () => {
   const home = mkdtempSync(join(tmpdir(), "oni-cli-"));
-  execFileSync("node", ["--import", "tsx", "src/cli.ts", "--home", home, "init", "deals"], {
+  const spec = writeSpec(home, "deals");
+  execFileSync("node", ["--import", "tsx", "src/cli.ts", "--home", home, "init", spec], {
     cwd: process.cwd(),
     encoding: "utf8"
   });
@@ -195,8 +229,44 @@ test("oni update configures parsed output through the CLI", () => {
   assert.match(schema, /root_key: deals/);
 });
 
+test("oni init refuses existing namespaces unless --force rebuilds them", () => {
+  const home = mkdtempSync(join(tmpdir(), "oni-cli-"));
+  const spec = writeSpec(home, "rebuild-demo");
+  execFileSync("node", ["--import", "tsx", "src/cli.ts", "--home", home, "init", spec], {
+    cwd: process.cwd(),
+    encoding: "utf8"
+  });
+  const dbPath = join(home, "pollers", "rebuild-demo", "newsletters.db");
+  assert.ok(existsSync(dbPath));
+
+  const duplicate = spawnSync("node", ["--import", "tsx", "src/cli.ts", "--home", home, "init", spec], {
+    cwd: process.cwd(),
+    encoding: "utf8"
+  });
+  assert.notEqual(duplicate.status, 0);
+  assert.match(duplicate.stderr, /poller already exists: rebuild-demo/);
+
+  const forced = spawnSync("node", ["--import", "tsx", "src/cli.ts", "--home", home, "init", spec, "--force"], {
+    cwd: process.cwd(),
+    encoding: "utf8"
+  });
+  assert.equal(forced.status, 0);
+  assert.match(forced.stderr, /WARNING: deleting existing namespace rebuild-demo/);
+  assert.ok(existsSync(dbPath));
+});
+
 test("oni init can configure semantic model settings", () => {
   const home = mkdtempSync(join(tmpdir(), "oni-cli-"));
+  const spec = writeSpec(home, "semantic-demo");
+  writeFileSync(spec, `namespace: semantic-demo
+semantic:
+  provider: transformers
+  model: custom/embedder
+  dimensions: 12
+pollers:
+  - name: ai
+    gmail_query: from:ai@example.com
+`);
   execFileSync("node", [
     "--import",
     "tsx",
@@ -204,11 +274,7 @@ test("oni init can configure semantic model settings", () => {
     "--home",
     home,
     "init",
-    "semantic-demo",
-    "--semantic-model",
-    "custom/embedder",
-    "--semantic-dimensions",
-    "12"
+    spec
   ], {
     cwd: process.cwd(),
     encoding: "utf8"
@@ -222,6 +288,13 @@ test("oni init can configure semantic model settings", () => {
 
 test("oni init can configure the parsing prompt", () => {
   const home = mkdtempSync(join(tmpdir(), "oni-cli-"));
+  const spec = writeSpec(home, "prompt-demo");
+  writeFileSync(spec, `namespace: prompt-demo
+prompt: Extract civic meetings as JSON.
+pollers:
+  - name: civic
+    gmail_query: from:civic@example.com
+`);
   execFileSync("node", [
     "--import",
     "tsx",
@@ -229,9 +302,7 @@ test("oni init can configure the parsing prompt", () => {
     "--home",
     home,
     "init",
-    "prompt-demo",
-    "--parsing-prompt",
-    "Extract civic meetings as JSON."
+    spec
   ], {
     cwd: process.cwd(),
     encoding: "utf8"

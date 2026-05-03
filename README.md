@@ -49,8 +49,37 @@ npm test
 
 ## Create A Namespace
 
+Create a shareable namespace spec:
+
+```yaml
+namespace: newsletter-demo
+interval_minutes: 30
+openclaw_env: /path/to/openclaw.env
+prompt: |
+  Extract NYC events as JSON.
+schema:
+  record_name: event
+  table: events
+  root_key: events
+  columns:
+    - name: name
+      type: text
+      required: true
+    - name: date
+      type: text
+      index: true
+    - name: link
+      type: text
+pollers:
+  - name: timeout-nyc
+    description: TimeOut NYC weekly picks
+    gmail_query: from:newsletter@timeout.com
+```
+
+Then initialize from the spec:
+
 ```sh
-oni init newsletter-demo --interval-minutes 30 --openclaw-env /path/to/openclaw.env --parsing-prompt "Extract NYC events as JSON."
+oni init newsletter-demo.spec.yaml
 ```
 
 This creates:
@@ -72,47 +101,59 @@ Edit `poller.yaml` for model/API/provider settings, `sources.yaml` for Gmail
 queries, `prompt.md` for the analyzer instructions, and `schema.yaml` for the
 records you want stored.
 
-By default, ONI creates an event schema compatible with city activity
-newsletters. To start with different naming:
+`oni init` fails if the namespace already exists. To intentionally delete and
+rebuild an existing namespace from a spec:
 
 ```sh
-oni init deals --record-name deal --table deals --root-key deals
+oni init newsletter-demo.spec.yaml --force
 ```
 
-To use a different local embedding model, set the model and dimensions at
-initialization:
-
-```sh
-oni init deals --semantic-model Xenova/all-MiniLM-L6-v2 --semantic-dimensions 384
-```
-
-Non-default naming starts with generic `title`, `summary`, `link`, and `tags`
-columns. Then edit `schema.yaml` to define the actual columns:
-
-```yaml
-record_name: deal
-table: deals
-root_key: deals
-columns:
-  - name: title
-    type: text
-    required: true
-  - name: company
-    type: text
-    index: true
-  - name: discount_percent
-    type: integer
-  - name: expires_on
-    type: text
-    index: true
-  - name: link
-    type: text
-  - name: metadata
-    type: json
-```
+`--force` removes the old namespace directory first, including the database,
+logs, prompt, schema, and sources.
 
 Supported column types are `text`, `integer`, `number`, `boolean`, and `json`.
 ONI always adds `id`, `email_id`, `source`, `raw_json`, and `extracted_at`.
+
+Specs can include analyzer and semantic settings:
+
+```yaml
+analyzer:
+  provider: anthropic
+  model: claude-sonnet-4-6
+semantic:
+  provider: transformers
+  model: Xenova/all-MiniLM-L6-v2
+  dimensions: 384
+```
+
+For a different record shape, put the full output schema in the spec:
+
+```yaml
+namespace: deals
+schema:
+  record_name: deal
+  table: deals
+  root_key: deals
+  columns:
+    - name: title
+      type: text
+      required: true
+    - name: company
+      type: text
+      index: true
+    - name: discount_percent
+      type: integer
+    - name: expires_on
+      type: text
+      index: true
+    - name: link
+      type: text
+    - name: metadata
+      type: json
+pollers:
+  - name: promos
+    gmail_query: from:promos@example.com
+```
 
 For simple naming/model/prompt changes, update only the fields that are changing:
 
@@ -232,7 +273,7 @@ You'll need:
 
 ```sh
 npm install -g @choneface/oni
-oni init newsletter-demo --openclaw-env /path/to/openclaw.env
+oni init newsletter-demo.spec.yaml
 oni start newsletter-demo
 ```
 
@@ -270,7 +311,8 @@ OPENCLAW_ENV_FILE=/path/to/openclaw.env docker compose run --rm --entrypoint nod
 ```
 oni --version                            show installed version
 oni --help                               show commands
-oni init <slug>                          create a namespace folder
+oni init <spec.yaml>                     create a namespace from a spec
+oni init <spec.yaml> --force             delete and rebuild an existing namespace
 oni update <slug> key=value [...]        update selected namespace settings
 oni <slug> add poller <name> --query Q   add a newsletter poller to a namespace
 oni add-poller <slug> <name> --query Q   same as above, easier for scripts

@@ -8,8 +8,11 @@ import { connect, initDb, queryRecords } from "./db.js";
 import {
   DEFAULT_OUTPUT_SCHEMA,
   DEFAULT_SEMANTIC_CONFIG,
+  type OutputColumn,
   type OutputSchema,
   type PollerConfig,
+  type PollerTemplate,
+  type Source,
   addSource,
   formatOutputSchema,
   initPoller,
@@ -31,42 +34,18 @@ program
   .option("--log-level <level>", "log level");
 
 program.command("init")
-  .argument("<slug>", "poller slug")
-  .description("create a poller namespace")
-  .option("--interval-minutes <minutes>", "polling interval", parseNumber, 30)
-  .option("--openclaw-env <path>", "path to openclaw .env")
-  .option("--analyzer-provider <provider>", "analyzer provider", "anthropic")
-  .option("--parsing-prompt <prompt>", "analyzer parsing prompt")
-  .option("--record-name <name>", "singular name for parsed records", DEFAULT_OUTPUT_SCHEMA.recordName)
-  .option("--table <name>", "SQLite table for parsed records", DEFAULT_OUTPUT_SCHEMA.table)
-  .option("--root-key <key>", "top-level JSON array key expected from the analyzer", DEFAULT_OUTPUT_SCHEMA.rootKey)
-  .option("--semantic-provider <provider>", "semantic embedding provider", DEFAULT_SEMANTIC_CONFIG.provider)
-  .option("--semantic-model <model>", "semantic embedding model", DEFAULT_SEMANTIC_CONFIG.model)
-  .option("--semantic-dimensions <n>", "semantic embedding dimensions", parseSemanticDimensions, DEFAULT_SEMANTIC_CONFIG.dimensions)
-  .option("--force", "overwrite existing template files")
+  .argument("<spec>", "namespace spec YAML")
+  .description("create a poller namespace from a spec")
+  .option("--force", "delete an existing namespace before rebuilding it from the spec")
   .action((slug, options) => {
     const home = homeFromProgram();
-    const schema = defaultSchemaWith({
-      recordName: options.recordName,
-      table: options.table,
-      rootKey: options.rootKey
-    });
-    const root = initPoller({
-      slug,
-      home,
-      intervalMinutes: options.intervalMinutes,
-      openclawEnv: options.openclawEnv,
-      analyzerProvider: options.analyzerProvider,
-      prompt: options.parsingPrompt,
-      semantic: {
-        provider: parseSemanticProvider(options.semanticProvider),
-        model: options.semanticModel,
-        dimensions: options.semanticDimensions
-      },
-      schema,
-      force: Boolean(options.force)
-    });
-    initDb(resolve(root, "newsletters.db"), schema);
+    const spec = loadNamespaceSpec(slug);
+    if (options.force) {
+      console.error(`WARNING: deleting existing namespace ${spec.slug} before rebuilding from ${slug}`);
+      console.error("WARNING: this removes the namespace database, logs, prompt, schema, and sources.");
+    }
+    const root = initPoller({ ...spec, home, force: Boolean(options.force) });
+    initDb(resolve(root, "newsletters.db"), spec.schema ?? DEFAULT_OUTPUT_SCHEMA);
     console.log(`created ${root}`);
     console.log(`edit ${resolve(root, "poller.yaml")}`);
     console.log(`edit ${resolve(root, "sources.yaml")}`);
@@ -193,6 +172,108 @@ function addNamespacePoller(slug: string, name: string, options: { query: string
   console.log(`added poller ${source.name} to ${slug}`);
   console.log(`queries=${source.gmailQueries.length}`);
   console.log(`edit ${cfg.sourcesPath}`);
+}
+
+function loadNamespaceSpec(path: string): PollerTemplate {
+  const raw = YAML.parse(readFileSync(path, "utf8")) ?? {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error(`${path} must contain a YAML object`);
+  const spec = raw as Record<string, unknown>;
+  const slug = stringValue(spec.namespace ?? spec.slug, `${path} namespace`);
+  const intervalMinutes = numberValue(spec.interval_minutes ?? spec.intervalMinutes ?? spec.schedule_minutes ?? spec.scheduleMinutes ?? 30, `${path} interval_minutes`);
+  const analyzer = objectValue(spec.analyzer, `${path} analyzer`);
+  const semantic = objectValue(spec.semantic, `${path} semantic`);
+  const sources = sourceList(spec.pollers ?? spec.sources ?? [], path);
+  return {
+    slug,
+    intervalMinutes,
+    openclawEnv: optionalString(spec.openclaw_env ?? spec.openclawEnv),
+    analyzerProvider: optionalString(analyzer.provider),
+    analyzerModel: optionalString(analyzer.model),
+    prompt: optionalString(spec.prompt),
+    semantic: {
+      provider: parseSemanticProvider(String(semantic.provider ?? DEFAULT_SEMANTIC_CONFIG.provider)),
+      model: String(semantic.model ?? DEFAULT_SEMANTIC_CONFIG.model),
+      dimensions: parseSemanticDimensions(String(semantic.dimensions ?? DEFAULT_SEMANTIC_CONFIG.dimensions))
+    },
+    schema: schemaValue(spec.schema, path),
+    sources
+  };
+}
+
+function sourceList(value: unknown, path: string): Source[] {
+  if (!Array.isArray(value) || value.length === 0) throw new Error(`${path} must define at least one poller`);
+  return value.map((entry, index) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) throw new Error(`${path} pollers[${index}] must be an object`);
+    const raw = entry as Record<string, unknown>;
+    const name = stringValue(raw.name, `${path} pollers[${index}].name`);
+    const queries = queryList(raw.gmail_queries ?? raw.gmailQueries ?? raw.gmail_query ?? raw.gmailQuery, `${path} pollers[${index}]`);
+    return {
+      name,
+      description: optionalString(raw.description) ?? "",
+      gmailQueries: queries,
+      parser: optionalString(raw.parser) ?? "default_event_extractor",
+      enabled: raw.enabled !== false
+    };
+  });
+}
+
+function queryList(value: unknown, label: string): string[] {
+  const queries = Array.isArray(value)
+    ? value.map((query) => String(query).trim()).filter(Boolean)
+    : [String(value ?? "").trim()].filter(Boolean);
+  if (queries.length === 0) throw new Error(`${label} must define gmail_query or gmail_queries`);
+  return Array.from(new Set(queries));
+}
+
+function schemaValue(value: unknown, path: string): OutputSchema {
+  if (value === undefined || value === null) return DEFAULT_OUTPUT_SCHEMA;
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${path} schema must be an object`);
+  const raw = value as Record<string, unknown>;
+  const columns = raw.columns;
+  if (!Array.isArray(columns) || columns.length === 0) throw new Error(`${path} schema.columns must contain at least one column`);
+  return {
+    recordName: String(raw.record_name ?? raw.recordName ?? "record"),
+    table: String(raw.table ?? "records"),
+    rootKey: String(raw.root_key ?? raw.rootKey ?? "records"),
+    columns: columns.map((column, index) => columnValue(column, `${path} schema.columns[${index}]`))
+  };
+}
+
+function columnValue(value: unknown, label: string): OutputColumn {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
+  const raw = value as Record<string, unknown>;
+  const type = String(raw.type ?? "text");
+  if (!["text", "integer", "number", "boolean", "json"].includes(type)) throw new Error(`${label}.type is unsupported: ${type}`);
+  return {
+    name: stringValue(raw.name, `${label}.name`),
+    type: type as OutputColumn["type"],
+    required: Boolean(raw.required),
+    index: Boolean(raw.index)
+  };
+}
+
+function objectValue(value: unknown, label: string): Record<string, unknown> {
+  if (value === undefined || value === null) return {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
+  return value as Record<string, unknown>;
+}
+
+function stringValue(value: unknown, label: string): string {
+  const text = String(value ?? "").trim();
+  if (!text) throw new Error(`${label} is required`);
+  return text;
+}
+
+function numberValue(value: unknown, label: string): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) throw new Error(`${label} must be a number, got ${value}`);
+  return parsed;
+}
+
+function optionalString(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  const text = String(value).trim();
+  return text || undefined;
 }
 
 function updatePoller(slug: string, changes: string[]): void {
@@ -353,24 +434,6 @@ function currentCycleCommand(): string {
     return `node --import tsx ${join(dirname(modulePath), "worker.ts")}`;
   }
   return `node ${join(dirname(modulePath), "worker.js")}`;
-}
-
-function defaultSchemaWith(overrides: Pick<OutputSchema, "recordName" | "table" | "rootKey">): OutputSchema {
-  const usesDefaultNames = overrides.recordName === DEFAULT_OUTPUT_SCHEMA.recordName
-    && overrides.table === DEFAULT_OUTPUT_SCHEMA.table
-    && overrides.rootKey === DEFAULT_OUTPUT_SCHEMA.rootKey;
-  if (usesDefaultNames) return DEFAULT_OUTPUT_SCHEMA;
-  return {
-    recordName: overrides.recordName,
-    table: overrides.table,
-    rootKey: overrides.rootKey,
-    columns: [
-      { name: "title", type: "text", required: true, index: false },
-      { name: "summary", type: "text", required: false, index: false },
-      { name: "link", type: "text", required: false, index: false },
-      { name: "tags", type: "json", required: false, index: false }
-    ]
-  };
 }
 
 function writeSchemaAndInit(cfg: PollerConfig, schema: OutputSchema): void {
