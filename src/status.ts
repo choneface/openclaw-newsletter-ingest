@@ -49,8 +49,8 @@ export type PollerStatus = {
 
 export function collectStatus(slug: string, home: string): PollerStatus {
   const cfg = loadPoller(slug, { home, requireSecrets: false });
-  const timer = collectTimerStatus(slug, cfg.intervalMinutes);
   const service = collectServiceStatus(slug);
+  const timer = collectTimerStatus(slug, cfg.intervalMinutes, service);
   const sources = safeLoadSources(cfg.sourcesPath);
 
   const db = connect(cfg.settings.dbPath);
@@ -111,10 +111,14 @@ export function formatStatusText(status: PollerStatus): string {
   return lines.join("\n");
 }
 
-function collectTimerStatus(slug: string, intervalMinutes: number): PollerStatus["timer"] {
+function collectTimerStatus(slug: string, intervalMinutes: number, service: PollerStatus["service"]): PollerStatus["timer"] {
   const props = systemctlShow(timerName(slug));
   const loaded = props.LoadState && props.LoadState !== "not-found";
-  const lastRunAt = parseSystemdTime(props.LastTriggerUSec);
+  // Prefer the service's actual start timestamp — it reflects every real run
+  // (timer-driven or `systemctl start`), which is what `systemctl list-timers`
+  // also uses to compute next firing under OnUnitActiveSec. Fall back to the
+  // timer's last automatic trigger for the case where no service run exists.
+  const lastRunAt = service.last_started_at ?? parseSystemdTime(props.LastTriggerUSec);
   const nextRunAt = parseSystemdTime(props.NextElapseUSecRealtime)
     ?? deriveNextRun(lastRunAt, intervalMinutes);
   return {
