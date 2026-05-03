@@ -235,6 +235,16 @@ If a source needs different extraction behavior from other sources, create a
 separate namespace with a tailored `prompt.md`/`schema.yaml` or extend
 `src/analyzer.ts` and the `parser` dispatch in `sources.yaml`.
 
+## Agent Skills
+
+The npm package includes agent-facing skills:
+
+- `skills/oni-cli/SKILL.md`: how to operate the intentionally small ONI CLI
+  surface.
+- `skills/oni-ingestion-service-builder/SKILL.md`: how to interview a user and
+  gather the purpose, Gmail source queries, freshness needs, downstream use
+  case, parsing prompt notes, and schema fields needed for a namespace spec.
+
 ## Semantic Search
 
 ONI keeps SQLite as the source of truth and adds an optional local semantic

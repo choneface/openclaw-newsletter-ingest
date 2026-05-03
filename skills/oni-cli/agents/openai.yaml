@@ -1,0 +1,4 @@
+interface:
+  display_name: "ONI CLI"
+  short_description: "Operate ONI namespaces and pollers"
+  default_prompt: "Use $oni-cli to operate ONI newsletter namespaces, inspect status, and query ingested records."

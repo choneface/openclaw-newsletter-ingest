@@ -6,7 +6,8 @@ stores them in SQLite alongside a local sqlite-vec semantic index, and lets
 agents read them via `oni query` / `oni search` or directly from the DB.
 
 It runs on a Debian VPS as a global npm install. Most users are downstream
-OpenClaw agents that depend on the contracts in `SKILL.md` — keep them stable.
+OpenClaw agents that depend on the contracts in `skills/oni-cli/SKILL.md` —
+keep them stable.
 
 ## Architecture
 
@@ -50,9 +51,9 @@ test/*.test.ts    node --test, run with `npm test`
 
 ## CLI conventions
 
-The CLI surface is intentionally small (see `SKILL.md`). Resist adding
+The CLI surface is intentionally small (see `skills/oni-cli/SKILL.md`). Resist adding
 pipeline-stage verbs (`poll`, `parse`, `run`, `index`, `stop`) — they are
-implementation details and break the SKILL contract that downstream agents
+implementation details and break the skill contract that downstream agents
 depend on. The public surface is: `init`, `update`, `add-poller`, `start`,
 `status`, `query`, `search`, `logs`. `oni <ns> add poller ...` is rewritten
 to `add-poller` in `cli.ts` so both forms work.
@@ -61,8 +62,8 @@ to `add-poller` in `cli.ts` so both forms work.
 
 `oni status` is the agent's primary health check. Treat regressions there as
 release-blocking: any change to its output should keep the JSON shape stable
-where possible, update `SKILL.md`'s payload example, and add a test asserting
-the shape (`test/cli.test.ts`).
+where possible, update `skills/oni-cli/SKILL.md`'s payload example, and add a
+test asserting the shape (`test/cli.test.ts`).
 
 ## Release checklist
 
@@ -79,11 +80,11 @@ operator which version number to use:
 Before bumping `version` in `package.json` and pushing a tag:
 
 1. **`npm test`** passes locally.
-2. **`SKILL.md` is up to date** — the commands list, vocabulary, status
-   payload shape, and any new flags must match the code on this commit.
-   Downstream agents read `SKILL.md`, not the source. If a new public verb
-   or status field landed and `SKILL.md` doesn't mention it, the release is
-   not ready.
+2. **`skills/oni-cli/SKILL.md` is up to date** — the commands list,
+   vocabulary, status payload shape, and any new flags must match the code on
+   this commit. Downstream agents read the skills, not the source. If a new
+   public verb or status field landed and `skills/oni-cli/SKILL.md` doesn't
+   mention it, the release is not ready.
 3. **`README.md` is up to date** — the CLI cheat-sheet at the bottom and
    any sections you touched must reflect what shipped.
 4. **`CLAUDE.md` / `AGENTS.md`** still describe the architecture and module

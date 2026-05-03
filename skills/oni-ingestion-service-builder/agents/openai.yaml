@@ -1,0 +1,4 @@
+interface:
+  display_name: "ONI Ingestion Service Builder"
+  short_description: "Interview user for ONI namespace specs"
+  default_prompt: "Use $oni-ingestion-service-builder to gather the information needed to create an ONI newsletter namespace spec."

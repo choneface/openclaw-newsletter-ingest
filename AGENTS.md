@@ -58,14 +58,14 @@ The public CLI is intentionally small:
 
 Do **not** add pipeline-stage verbs (`poll`, `parse`, `run`, `index`,
 `stop`) — they are implementation details and would break the contract
-agents depend on. See `SKILL.md` for the canonical surface.
+agents depend on. See `skills/oni-cli/SKILL.md` for the canonical surface.
 
 ## `oni status` is load-bearing
 
 It is the primary tool downstream agents use to confirm ingestion is
 healthy. Changes there are release-blocking unless paired with:
 
-- a `SKILL.md` update of the JSON payload example,
+- a `skills/oni-cli/SKILL.md` update of the JSON payload example,
 - a test in `test/cli.test.ts` asserting the new shape,
 - a `README.md` update if the human-readable output changes.
 
@@ -84,8 +84,9 @@ operator which version number to use:
 Before bumping `version` in `package.json` and pushing a `v*` tag:
 
 1. `npm test` passes.
-2. `SKILL.md` matches the shipped code — commands list, vocabulary, status
-   payload, and flags. Downstream agents read `SKILL.md`, not the source.
+2. `skills/oni-cli/SKILL.md` matches the shipped code — commands list,
+   vocabulary, status payload, and flags. Downstream agents read the skills,
+   not the source.
 3. `README.md` matches the shipped code — the CLI cheat-sheet and any
    sections you touched.
 4. `CLAUDE.md` / `AGENTS.md` still describe the architecture and module
