@@ -11,5 +11,3 @@ oni init "$slug" \
   --interval-minutes "$interval" \
   --analyzer-provider "$analyzer_provider" \
   --openclaw-env "$openclaw_env"
-
-oni sources "$slug"

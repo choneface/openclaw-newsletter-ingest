@@ -14,7 +14,7 @@ export function writeSystemdUnits(options: {
   slug: string;
   intervalMinutes: number;
   home: string;
-  oniBin: string;
+  cycleCommand: string;
 }): void {
   writeFileSync(join("/etc/systemd/system", serviceName(options.slug)), `[Unit]
 Description=ONI newsletter ingest (${options.slug})
@@ -22,7 +22,7 @@ Description=ONI newsletter ingest (${options.slug})
 [Service]
 Type=oneshot
 Environment=ONI_HOME=${options.home}
-ExecStart=${options.oniBin} --home ${options.home} run ${options.slug} --once
+ExecStart=${options.cycleCommand} --home ${options.home} ${options.slug}
 `);
 
   writeFileSync(join("/etc/systemd/system", timerName(options.slug)), `[Unit]
@@ -41,6 +41,12 @@ WantedBy=timers.target
 export function systemctl(...args: string[]): void {
   const result = spawnSync("systemctl", args, { stdio: "inherit" });
   if (result.status !== 0) throw new Error(`systemctl ${args.join(" ")} failed`);
+}
+
+export function systemctlOutput(...args: string[]): string {
+  const result = spawnSync("systemctl", args, { encoding: "utf8" });
+  if (result.status !== 0) return "unknown";
+  return result.stdout.trim() || "unknown";
 }
 
 export function journalctl(args: string[]): void {

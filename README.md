@@ -10,15 +10,15 @@ query.
    systemd timer
         │
         ▼
-   oni run <slug> --once
-   ├── poll  → IMAP fetch per sources.yaml entry → emails table
-   └── parse → prompt.md + schema.yaml + analyzer config → configured table
+   oni start <slug>
+   └── systemd timer runs the poller cycle:
+       poll → parse → index
         │
         ▼
    SQLite in ~/.oni/pollers/<slug>/newsletters.db
         │
         ▼
-   OpenClaw agent query helper
+   OpenClaw agents read SQLite directly
 ```
 
 Code runs on the VPS host as a Node CLI installed with npm.
@@ -40,7 +40,7 @@ npm test
 ## Create A Poller
 
 ```sh
-oni init weekendercrix --interval-minutes 30 --openclaw-env /docker/openclaw-874u/.env
+oni init newsletter-demo --interval-minutes 30 --openclaw-env /path/to/openclaw.env --parsing-prompt "Extract NYC events as JSON."
 ```
 
 This creates:
@@ -49,7 +49,7 @@ This creates:
 ~/.oni/
   config.yaml
   pollers/
-    weekendercrix/
+    newsletter-demo/
       poller.yaml
       sources.yaml
       prompt.md
@@ -104,14 +104,16 @@ columns:
 Supported column types are `text`, `integer`, `number`, `boolean`, and `json`.
 ONI always adds `id`, `email_id`, `source`, `raw_json`, and `extracted_at`.
 
-For simple changes, you can update the schema from the CLI:
+For simple naming/model/prompt changes, update only the fields that are changing:
 
 ```sh
-oni schema deals
-oni schema-set deals --record-name deal --table deals --root-key deals
-oni schema-add-column deals company --type text --index
-oni schema-add-column deals discount_percent --type integer
+oni update deals record-name=deal table=deals root-key=deals
+oni update deals semantic-model=Xenova/all-MiniLM-L6-v2 semantic-dimensions=384
+oni update deals parsing-prompt="Extract retail deals as JSON."
 ```
+
+For column changes, edit `schema.yaml`; ONI will initialize the configured table
+the next time the poller runs.
 
 ## Onboarding a new source
 
@@ -125,7 +127,7 @@ Edit `sources.yaml`:
   enabled: true
 ```
 
-Run `oni run weekendercrix --once` to test it.
+Run `oni start newsletter-demo` to let systemd run it on the configured interval.
 
 `gmail_query` accepts anything Gmail's search bar accepts — `from:`, `to:`, `subject:`, `label:`, `after:`, `older_than:`, parentheses, `OR`, `-`. See [Gmail's search reference](https://support.google.com/mail/answer/7190).
 
@@ -154,11 +156,11 @@ If a source needs different extraction behavior from other sources, create a
 separate poller with a tailored `prompt.md`/`schema.yaml` or extend
 `src/analyzer.ts` and the `parser` dispatch in `sources.yaml`.
 
-## Semantic search
+## Semantic Search
 
 ONI keeps SQLite as the source of truth and adds an optional local semantic
-index for abstract agent queries. Pointed questions should still use
-`oni query`; broader questions can use `oni search`.
+index for abstract agent retrieval. Use `oni query` for exact structured
+filters and `oni search` for meaning-based lookup.
 
 New pollers include:
 
@@ -169,20 +171,15 @@ semantic:
   dimensions: 384
 ```
 
-Build or refresh the vector index after parsing records:
-
-```sh
-oni index weekendercrix
-oni index weekendercrix --rebuild
-```
+Each poller cycle refreshes the vector index after parsing.
 
 Search parsed records by concept:
 
 ```sh
-oni search weekendercrix "quiet free outdoor music this weekend" --limit 10
+oni search newsletter-demo "quiet free outdoor music this weekend" --limit 10
 ```
 
-The first semantic command downloads the configured Transformers.js model into
+The first poller cycle with semantic indexing downloads the configured Transformers.js model into
 the local Hugging Face cache. The default model is a small open-source embedding
 model that runs locally and stores vectors in the same `newsletters.db` using
 `sqlite-vec`. Future embedding models can be configured by changing `model` and
@@ -197,9 +194,8 @@ You'll need:
 
 ```sh
 npm install -g @choneface/oni
-oni init weekendercrix --openclaw-env /docker/openclaw-874u/.env
-oni run weekendercrix --once
-oni start weekendercrix
+oni init newsletter-demo --openclaw-env /path/to/openclaw.env
+oni start newsletter-demo
 ```
 
 `oni start <slug>` writes a systemd service/timer pair named
@@ -215,9 +211,8 @@ repo.
 ```sh
 docker compose build oni
 docker compose run --rm init-poller
-docker compose run --rm oni poll docker-test --source _self_test --limit 5
-docker compose run --rm oni parse docker-test --limit 5
-docker compose run --rm oni query docker-test
+docker compose run --rm --entrypoint node oni dist/worker.js docker-test
+docker compose run --rm oni status docker-test
 ```
 
 `init-poller` uses `ANALYZER_PROVIDER=mock` by default so smoke tests can
@@ -228,29 +223,26 @@ live extraction.
 To use a different secrets file or poller slug:
 
 ```sh
-OPENCLAW_ENV_FILE=/path/to/openclaw.env POLLER_SLUG=weekendercrix docker compose run --rm init-poller
-OPENCLAW_ENV_FILE=/path/to/openclaw.env docker compose run --rm oni run weekendercrix --once --limit 5
+OPENCLAW_ENV_FILE=/path/to/openclaw.env POLLER_SLUG=newsletter-demo docker compose run --rm init-poller
+OPENCLAW_ENV_FILE=/path/to/openclaw.env docker compose run --rm --entrypoint node oni dist/worker.js newsletter-demo
 ```
 
 ## CLI
 
 ```
+oni --help                               show commands
 oni init <slug>                          create a poller folder
-oni sources <slug>                       list configured sources
-oni schema <slug>                        show parsed output schema
-oni schema-set <slug>                    update output naming/table/root key
-oni schema-add-column <slug> <name>      add an output column
-oni poll <slug> [--source S] [--limit N] fetch new emails
-oni parse <slug> [--limit N]             analyze unparsed emails
-oni run <slug> --once                    poll + parse once
+oni update <slug> key=value [...]        update selected poller settings
+oni status                               show every configured poller
+oni status -w                            refresh status every second
+oni start <slug>                         enable a systemd timer
+oni start --all                          enable all configured timers
 oni query <slug> [--where field=value]   read parsed records as JSON
-oni index <slug> [--rebuild]             embed parsed records into SQLite
 oni search <slug> <query>                semantic search over parsed records
-oni start <slug>                         enable systemd timer
-oni stop <slug>                          disable systemd timer
-oni status <slug>                        show timer status
 oni logs <slug>                          show service logs
 ```
+
+The poll, parse, and index stages are not separate CLI commands.
 
 ## DB schema
 
@@ -275,10 +267,10 @@ columns:
     index: true
 ```
 
-Re-parse a single email by clearing its `parsed_at`:
+Re-parse a single email by clearing its `parsed_at`, then let the next cycle
+pick it up:
 ```sh
 sqlite3 $DB_PATH "UPDATE emails SET parsed_at=NULL, parse_error=NULL WHERE id=42; DELETE FROM events WHERE email_id=42;"
-oni parse weekendercrix
 ```
 
 Use your configured table name instead of `events` for non-event pollers.

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import dotenv from "dotenv";
@@ -204,6 +204,7 @@ export function initPoller(options: {
   intervalMinutes: number;
   openclawEnv?: string;
   analyzerProvider?: string;
+  prompt?: string;
   semantic?: SemanticConfig;
   schema?: OutputSchema;
   force?: boolean;
@@ -223,7 +224,7 @@ export function initPoller(options: {
     Boolean(options.force)
   );
   writeTemplate(join(root, "sources.yaml"), DEFAULT_SOURCES, Boolean(options.force));
-  writeTemplate(join(root, "prompt.md"), DEFAULT_PROMPT, Boolean(options.force));
+  writeTemplate(join(root, "prompt.md"), options.prompt ?? DEFAULT_PROMPT, Boolean(options.force));
   writeTemplate(join(root, "schema.yaml"), formatOutputSchema(options.schema ?? DEFAULT_OUTPUT_SCHEMA), Boolean(options.force));
   return root;
 }
@@ -302,6 +303,14 @@ export function loadSources(path: string): Source[] {
 
 export function readPrompt(path: string): string {
   return readFileSync(path, "utf8");
+}
+
+export function listPollerSlugs(home: string): string[] {
+  ensureOniHome(home);
+  return readdirSync(join(home, "pollers"), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && existsSync(join(home, "pollers", entry.name, "poller.yaml")))
+    .map((entry) => entry.name)
+    .sort();
 }
 
 export function loadOutputSchema(path: string): OutputSchema {
