@@ -18,12 +18,76 @@ test("oni init, status, and query work through the CLI", () => {
 
   assert.match(status, /demo/);
   assert.match(status, /emails=0/);
+  assert.match(status, /pollers:/);
 
   const query = execFileSync("node", ["--import", "tsx", "src/cli.ts", "--home", home, "query", "demo"], {
     cwd: process.cwd(),
     encoding: "utf8"
   });
   assert.equal(query.trim(), "[]");
+});
+
+test("oni status --json emits a structured payload for agents", () => {
+  const home = mkdtempSync(join(tmpdir(), "oni-cli-"));
+  execFileSync("node", ["--import", "tsx", "src/cli.ts", "--home", home, "init", "demo"], {
+    cwd: process.cwd(),
+    encoding: "utf8"
+  });
+  execFileSync("node", [
+    "--import",
+    "tsx",
+    "src/cli.ts",
+    "--home",
+    home,
+    "demo",
+    "add",
+    "poller",
+    "moma",
+    "--query",
+    "from:newsletters@email.moma.org"
+  ], { cwd: process.cwd(), encoding: "utf8" });
+
+  const raw = execFileSync("node", [
+    "--import",
+    "tsx",
+    "src/cli.ts",
+    "--home",
+    home,
+    "status",
+    "demo",
+    "--json"
+  ], { cwd: process.cwd(), encoding: "utf8" });
+  const status = JSON.parse(raw);
+
+  assert.equal(status.namespace, "demo");
+  assert.ok(["ok", "warn", "error"].includes(status.health));
+  assert.equal(typeof status.interval_minutes, "number");
+  assert.ok(status.timer);
+  assert.ok(status.service);
+  assert.ok(status.pipeline);
+  assert.equal(status.pipeline.emails, 0);
+  assert.ok(Array.isArray(status.pollers));
+  const moma = status.pollers.find((entry: { name: string }) => entry.name === "moma");
+  assert.ok(moma, "expected moma poller in status output");
+  assert.equal(moma.configured, true);
+  assert.deepEqual(moma.queries, ["from:newsletters@email.moma.org"]);
+  assert.equal(moma.emails, 0);
+});
+
+test("oni status --json without slug returns an array", () => {
+  const home = mkdtempSync(join(tmpdir(), "oni-cli-"));
+  execFileSync("node", ["--import", "tsx", "src/cli.ts", "--home", home, "init", "demo"], {
+    cwd: process.cwd(),
+    encoding: "utf8"
+  });
+  const raw = execFileSync("node", ["--import", "tsx", "src/cli.ts", "--home", home, "status", "--json"], {
+    cwd: process.cwd(),
+    encoding: "utf8"
+  });
+  const parsed = JSON.parse(raw);
+  assert.ok(Array.isArray(parsed));
+  assert.equal(parsed.length, 1);
+  assert.equal(parsed[0].namespace, "demo");
 });
 
 test("oni help shows the compact public CLI", () => {

@@ -274,7 +274,9 @@ oni init <slug>                          create a namespace folder
 oni update <slug> key=value [...]        update selected namespace settings
 oni <slug> add poller <name> --query Q   add a newsletter poller to a namespace
 oni add-poller <slug> <name> --query Q   same as above, easier for scripts
-oni status                               show every configured poller
+oni status                               show every configured namespace
+oni status <slug>                        show one namespace
+oni status --json                        machine-readable output (agents)
 oni status -w                            refresh status every second
 oni start <slug>                         enable a systemd timer
 oni start --all                          enable all configured timers
@@ -284,6 +286,43 @@ oni logs <slug>                          show service logs
 ```
 
 The poll, parse, and index stages are not separate CLI commands.
+
+## Status
+
+`oni status` is the primary health check for an operator or downstream agent.
+The default output is human-readable; pass `--json` to get a structured payload.
+
+```jsonc
+{
+  "namespace": "newsletter-demo",
+  "health": "ok",            // "ok" | "warn" | "error"
+  "notes": [],               // human hints, one per detected issue
+  "interval_minutes": 60,
+  "timer":   { "state": "active", "next_run_at": "...", "last_run_at": "..." },
+  "service": { "state": "inactive", "last_result": "success", "last_exit_code": 0,
+               "last_started_at": "...", "last_finished_at": "..." },
+  "pipeline": { "emails": 5, "pending": 0, "failed": 0, "records": 12, "embedded": 12 },
+  "pollers": [
+    {
+      "name": "coolstuffnyc",
+      "configured": true,
+      "enabled": true,
+      "queries": ["from:coolstuffnyc@substack.com"],
+      "emails": 3, "failed": 0,
+      "last_fetched_at": "...", "last_subject": "...", "last_error": null
+    }
+  ]
+}
+```
+
+Health is `error` when the timer is missing/inactive or the last run failed,
+`warn` when a configured poller has zero emails after at least one run (likely
+a wrong `gmail_query`) or any email failed to parse, otherwise `ok`. Each
+non-`ok` reason is also surfaced in `notes`.
+
+After upgrading the `oni` package, run `oni start <namespace>` once for each
+namespace so the systemd unit's `ExecStart` is regenerated against the current
+worker.
 
 ## DB schema
 

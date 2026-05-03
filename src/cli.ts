@@ -18,7 +18,8 @@ import {
   oniHome
 } from "./config.js";
 import { searchRecords } from "./semantic.js";
-import { journalctl, serviceName, systemctl, systemctlOutput, timerName, writeSystemdUnits } from "./systemd.js";
+import { collectStatus, formatStatusText } from "./status.js";
+import { journalctl, serviceName, systemctl, timerName, writeSystemdUnits } from "./systemd.js";
 
 const program = new Command();
 
@@ -102,13 +103,20 @@ program.command("start")
 program.command("status")
   .argument("[slug]", "poller slug")
   .option("-w, --watch", "refresh every second")
+  .option("--json", "emit machine-readable JSON")
   .description("show poller timer and pipeline status")
   .action((slug, options) => {
     const home = homeFromProgram();
     const render = () => {
       if (options.watch) process.stdout.write("\x1Bc");
       const slugs = slug ? [slug] : listPollerSlugs(home);
-      for (const selected of slugs) console.log(formatStatus(selected, home));
+      const statuses = slugs.map((selected) => collectStatus(selected, home));
+      if (options.json) {
+        const payload = slug ? statuses[0] ?? null : statuses;
+        console.log(JSON.stringify(payload, null, 2));
+      } else {
+        for (const status of statuses) console.log(formatStatusText(status));
+      }
     };
     render();
     if (options.watch) setInterval(render, 1000);
@@ -288,45 +296,6 @@ function startPoller(slug: string, home: string): void {
 function requiredSlug(slug: string | undefined, command: string): string {
   if (!slug) throw new Error(`oni ${command} requires <slug> or --all`);
   return slug;
-}
-
-function formatStatus(slug: string, home: string): string {
-  const cfg = loadPoller(slug, { home, requireSecrets: false });
-  const timer = systemctlOutput("is-active", timerName(slug));
-  const service = systemctlOutput("is-active", serviceName(slug));
-  const next = systemctlOutput("show", timerName(slug), "--property=NextElapseUSecRealtime", "--value");
-  const db = connect(cfg.settings.dbPath);
-  try {
-    const emails = scalar(db, "SELECT COUNT(*) FROM emails");
-    const pending = scalar(db, "SELECT COUNT(*) FROM emails WHERE parsed_at IS NULL");
-    const failed = scalar(db, "SELECT COUNT(*) FROM emails WHERE parse_error IS NOT NULL");
-    const records = scalar(db, `SELECT COUNT(*) FROM "${cfg.output.table}"`);
-    const embedded = tableExists(db, "semantic_items")
-      ? scalar(db, "SELECT COUNT(*) FROM semantic_items WHERE target_type = 'record' AND target_table = ? AND model = ?", [cfg.output.table, cfg.semantic.model])
-      : 0;
-    return [
-      `${slug}`,
-      `  timer=${timer} service=${service} next=${next || "unknown"}`,
-      `  emails=${emails} pending=${pending} failed=${failed} records=${records} embedded=${embedded}`
-    ].join("\n");
-  } finally {
-    db.close();
-  }
-}
-
-function scalar(db: ReturnType<typeof connect>, sql: string, params: unknown[] = []): number {
-  try {
-    const row = db.prepare(sql).get(...params) as Record<string, unknown> | undefined;
-    const value = row ? Object.values(row)[0] : 0;
-    return Number(value ?? 0);
-  } catch {
-    return 0;
-  }
-}
-
-function tableExists(db: ReturnType<typeof connect>, table: string): boolean {
-  const row = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(table);
-  return Boolean(row);
 }
 
 function parseNumber(value: string): number {

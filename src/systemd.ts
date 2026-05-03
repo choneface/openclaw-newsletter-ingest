@@ -45,8 +45,27 @@ export function systemctl(...args: string[]): void {
 
 export function systemctlOutput(...args: string[]): string {
   const result = spawnSync("systemctl", args, { encoding: "utf8" });
-  if (result.status !== 0) return "unknown";
-  return result.stdout.trim() || "unknown";
+  const out = (result.stdout ?? "").trim();
+  if (out) return out;
+  return "unknown";
+}
+
+export function systemctlShow(unit: string): Record<string, string> {
+  const result = spawnSync("systemctl", ["show", unit, "--no-page"], { encoding: "utf8" });
+  const props: Record<string, string> = {};
+  for (const line of (result.stdout ?? "").split("\n")) {
+    const eq = line.indexOf("=");
+    if (eq <= 0) continue;
+    props[line.slice(0, eq)] = line.slice(eq + 1);
+  }
+  return props;
+}
+
+export function parseSystemdUsec(value: string | undefined): string | null {
+  if (!value) return null;
+  const usec = Number(value);
+  if (!Number.isFinite(usec) || usec <= 0) return null;
+  return new Date(Math.round(usec / 1000)).toISOString();
 }
 
 export function journalctl(args: string[]): void {
