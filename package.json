@@ -1,6 +1,6 @@
 {
   "name": "@choneface/oni",
-  "version": "0.0.1",
+  "version": "0.2.0",
   "description": "OpenClaw Newsletter Ingest: poll newsletters, analyze them with an LLM, and store configurable structured records in SQLite.",
   "type": "module",
   "repository": {
@@ -32,11 +32,13 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.92.0",
+    "@huggingface/transformers": "^4.2.0",
     "better-sqlite3": "^11.7.0",
     "commander": "^12.1.0",
     "dotenv": "^16.4.7",
     "imapflow": "^1.0.164",
     "mailparser": "^3.7.2",
+    "sqlite-vec": "^0.1.9",
     "yaml": "^2.6.1"
   },
   "devDependencies": {

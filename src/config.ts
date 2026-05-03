@@ -39,6 +39,12 @@ export type Settings = {
   logLevel: string;
 };
 
+export type SemanticConfig = {
+  provider: "transformers";
+  model: string;
+  dimensions: number;
+};
+
 export type PollerConfig = {
   slug: string;
   root: string;
@@ -49,6 +55,7 @@ export type PollerConfig = {
   output: OutputSchema;
   intervalMinutes: number;
   provider: string;
+  semantic: SemanticConfig;
 };
 
 export const DEFAULT_PROMPT = `You extract NYC events from newsletter emails.
@@ -133,7 +140,11 @@ const DEFAULT_SOURCES = `# Newsletter sources for this poller.
   enabled: true
 `;
 
-function defaultPollerYaml(slug: string, intervalMinutes: number, openclawEnv: string, analyzerProvider = "anthropic"): string {
+function defaultPollerYaml(slug: string, intervalMinutes: number, openclawEnv: string, options: {
+  analyzerProvider?: string;
+  semantic?: SemanticConfig;
+} = {}): string {
+  const semantic = options.semantic ?? DEFAULT_SEMANTIC_CONFIG;
   return `version: 1
 slug: ${slug}
 interval_minutes: ${intervalMinutes}
@@ -148,11 +159,16 @@ imap:
   socket_timeout_ms: 30000
 
 analyzer:
-  provider: ${analyzerProvider}
+  provider: ${options.analyzerProvider ?? "anthropic"}
   api_key_env: ANTHROPIC_API_KEY
   model: claude-sonnet-4-6
   prompt: prompt.md
   schema: schema.yaml
+
+semantic:
+  provider: ${JSON.stringify(semantic.provider)}
+  model: ${JSON.stringify(semantic.model)}
+  dimensions: ${semantic.dimensions}
 
 database:
   path: newsletters.db
@@ -162,6 +178,12 @@ log_level: INFO
 openclaw_env: ${openclawEnv ? JSON.stringify(openclawEnv) : "\"\""}
 `;
 }
+
+export const DEFAULT_SEMANTIC_CONFIG: SemanticConfig = {
+  provider: "transformers",
+  model: "Xenova/all-MiniLM-L6-v2",
+  dimensions: 384
+};
 
 export function oniHome(path?: string): string {
   if (path) return resolve(path.replace(/^~(?=$|\/)/, homedir()));
@@ -182,6 +204,7 @@ export function initPoller(options: {
   intervalMinutes: number;
   openclawEnv?: string;
   analyzerProvider?: string;
+  semantic?: SemanticConfig;
   schema?: OutputSchema;
   force?: boolean;
 }): string {
@@ -193,7 +216,10 @@ export function initPoller(options: {
   mkdirSync(join(root, "logs"), { recursive: true });
   writeTemplate(
     join(root, "poller.yaml"),
-    defaultPollerYaml(options.slug, options.intervalMinutes, options.openclawEnv ?? "", options.analyzerProvider ?? "anthropic"),
+    defaultPollerYaml(options.slug, options.intervalMinutes, options.openclawEnv ?? "", {
+      analyzerProvider: options.analyzerProvider ?? "anthropic",
+      semantic: options.semantic
+    }),
     Boolean(options.force)
   );
   writeTemplate(join(root, "sources.yaml"), DEFAULT_SOURCES, Boolean(options.force));
@@ -218,6 +244,7 @@ export function loadPoller(slug: string, options: { home: string; requireSecrets
 
   const imap = raw.imap ?? {};
   const analyzer = raw.analyzer ?? {};
+  const semantic = raw.semantic ?? {};
   const database = raw.database ?? {};
   const requireSecrets = options.requireSecrets ?? true;
 
@@ -250,7 +277,12 @@ export function loadPoller(slug: string, options: { home: string; requireSecrets
     schemaPath,
     output,
     intervalMinutes: Number(raw.interval_minutes ?? 30),
-    provider: analyzer.provider ?? "anthropic"
+    provider: analyzer.provider ?? "anthropic",
+    semantic: {
+      provider: normalizeSemanticProvider(semantic.provider ?? "transformers"),
+      model: String(semantic.model ?? DEFAULT_SEMANTIC_CONFIG.model),
+      dimensions: normalizeSemanticDimensions(semantic.dimensions ?? DEFAULT_SEMANTIC_CONFIG.dimensions)
+    }
   };
 }
 
@@ -316,6 +348,20 @@ function normalizeColumnType(value: unknown): OutputColumn["type"] {
   const type = String(value ?? "text");
   if (["text", "integer", "number", "boolean", "json"].includes(type)) return type as OutputColumn["type"];
   throw new Error(`unsupported output column type: ${type}`);
+}
+
+function normalizeSemanticProvider(value: unknown): SemanticConfig["provider"] {
+  const provider = String(value ?? "transformers");
+  if (provider === "transformers") return provider;
+  throw new Error(`unsupported semantic provider: ${provider}`);
+}
+
+function normalizeSemanticDimensions(value: unknown): number {
+  const dimensions = Number(value);
+  if (!Number.isInteger(dimensions) || dimensions < 1 || dimensions > 4096) {
+    throw new Error(`semantic dimensions must be an integer from 1 to 4096, got ${value}`);
+  }
+  return dimensions;
 }
 
 function validateOutputSchema(schema: OutputSchema, path = "schema"): void {

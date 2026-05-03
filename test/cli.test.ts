@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -36,4 +36,29 @@ test("oni schema commands configure parsed output through the CLI", () => {
 
   assert.match(schema, /table: deals/);
   assert.match(schema, /name: company/);
+});
+
+test("oni init can configure semantic model settings", () => {
+  const home = mkdtempSync(join(tmpdir(), "oni-cli-"));
+  execFileSync("node", [
+    "--import",
+    "tsx",
+    "src/cli.ts",
+    "--home",
+    home,
+    "init",
+    "semantic-demo",
+    "--semantic-model",
+    "custom/embedder",
+    "--semantic-dimensions",
+    "12"
+  ], {
+    cwd: process.cwd(),
+    encoding: "utf8"
+  });
+  const pollerYaml = readFileSync(join(home, "pollers", "semantic-demo", "poller.yaml"), "utf8");
+
+  assert.match(pollerYaml, /semantic:/);
+  assert.match(pollerYaml, /model: "custom\/embedder"/);
+  assert.match(pollerYaml, /dimensions: 12/);
 });

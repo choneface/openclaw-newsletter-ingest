@@ -14,6 +14,9 @@ test("initPoller creates editable poller files", () => {
   assert.equal(cfg.slug, "coolstuffnyc");
   assert.equal(cfg.intervalMinutes, 15);
   assert.equal(cfg.provider, "anthropic");
+  assert.equal(cfg.semantic.provider, "transformers");
+  assert.equal(cfg.semantic.model, "Xenova/all-MiniLM-L6-v2");
+  assert.equal(cfg.semantic.dimensions, 384);
   assert.equal(cfg.settings.dbPath, join(root, "newsletters.db"));
   assert.equal(cfg.output.table, "events");
   assert.equal(cfg.output.rootKey, "events");

@@ -69,6 +69,13 @@ newsletters. To start with different naming:
 oni init deals --record-name deal --table deals --root-key deals
 ```
 
+To use a different local embedding model, set the model and dimensions at
+initialization:
+
+```sh
+oni init deals --semantic-model Xenova/all-MiniLM-L6-v2 --semantic-dimensions 384
+```
+
 Non-default naming starts with generic `title`, `summary`, `link`, and `tags`
 columns. Then edit `schema.yaml` to define the actual columns:
 
@@ -147,6 +154,40 @@ If a source needs different extraction behavior from other sources, create a
 separate poller with a tailored `prompt.md`/`schema.yaml` or extend
 `src/analyzer.ts` and the `parser` dispatch in `sources.yaml`.
 
+## Semantic search
+
+ONI keeps SQLite as the source of truth and adds an optional local semantic
+index for abstract agent queries. Pointed questions should still use
+`oni query`; broader questions can use `oni search`.
+
+New pollers include:
+
+```yaml
+semantic:
+  provider: transformers
+  model: Xenova/all-MiniLM-L6-v2
+  dimensions: 384
+```
+
+Build or refresh the vector index after parsing records:
+
+```sh
+oni index weekendercrix
+oni index weekendercrix --rebuild
+```
+
+Search parsed records by concept:
+
+```sh
+oni search weekendercrix "quiet free outdoor music this weekend" --limit 10
+```
+
+The first semantic command downloads the configured Transformers.js model into
+the local Hugging Face cache. The default model is a small open-source embedding
+model that runs locally and stores vectors in the same `newsletters.db` using
+`sqlite-vec`. Future embedding models can be configured by changing `model` and
+`dimensions`; ONI currently supports the local `transformers` provider.
+
 You'll need:
 - A Gmail account with **2FA enabled** (required for app passwords)
 - An app password from https://myaccount.google.com/apppasswords
@@ -203,6 +244,8 @@ oni poll <slug> [--source S] [--limit N] fetch new emails
 oni parse <slug> [--limit N]             analyze unparsed emails
 oni run <slug> --once                    poll + parse once
 oni query <slug> [--where field=value]   read parsed records as JSON
+oni index <slug> [--rebuild]             embed parsed records into SQLite
+oni search <slug> <query>                semantic search over parsed records
 oni start <slug>                         enable systemd timer
 oni stop <slug>                          disable systemd timer
 oni status <slug>                        show timer status

@@ -5,6 +5,7 @@ import { Command } from "commander";
 import { connect, initDb, insertRecords, markEmailFailed, markEmailParsed, queryRecords, unparsedEmails } from "./db.js";
 import {
   DEFAULT_OUTPUT_SCHEMA,
+  DEFAULT_SEMANTIC_CONFIG,
   type OutputColumn,
   type OutputSchema,
   type PollerConfig,
@@ -17,6 +18,7 @@ import {
 } from "./config.js";
 import { pollAll } from "./poller.js";
 import { extractRecords } from "./analyzer.js";
+import { indexRecords, searchRecords } from "./semantic.js";
 import { journalctl, serviceName, systemctl, timerName, writeSystemdUnits } from "./systemd.js";
 
 const program = new Command();
@@ -35,6 +37,9 @@ program.command("init")
   .option("--record-name <name>", "singular name for parsed records", DEFAULT_OUTPUT_SCHEMA.recordName)
   .option("--table <name>", "SQLite table for parsed records", DEFAULT_OUTPUT_SCHEMA.table)
   .option("--root-key <key>", "top-level JSON array key expected from the analyzer", DEFAULT_OUTPUT_SCHEMA.rootKey)
+  .option("--semantic-provider <provider>", "semantic embedding provider", DEFAULT_SEMANTIC_CONFIG.provider)
+  .option("--semantic-model <model>", "semantic embedding model", DEFAULT_SEMANTIC_CONFIG.model)
+  .option("--semantic-dimensions <n>", "semantic embedding dimensions", parseSemanticDimensions, DEFAULT_SEMANTIC_CONFIG.dimensions)
   .option("--force", "overwrite existing template files")
   .action((slug, options) => {
     const home = homeFromProgram();
@@ -49,6 +54,11 @@ program.command("init")
       intervalMinutes: options.intervalMinutes,
       openclawEnv: options.openclawEnv,
       analyzerProvider: options.analyzerProvider,
+      semantic: {
+        provider: parseSemanticProvider(options.semanticProvider),
+        model: options.semanticModel,
+        dimensions: options.semanticDimensions
+      },
       schema,
       force: Boolean(options.force)
     });
@@ -180,6 +190,41 @@ program.command("query")
     }
   });
 
+program.command("index")
+  .argument("<slug>", "poller slug")
+  .option("--limit <n>", "max parsed records to index", parseNumber)
+  .option("--rebuild", "rebuild the semantic index for this poller's output table")
+  .description("embed parsed records into the local SQLite semantic index")
+  .action(async (slug, options) => {
+    const cfg = loadPoller(slug, { home: homeFromProgram(), requireSecrets: false });
+    const db = connect(cfg.settings.dbPath);
+    try {
+      const result = await indexRecords(db, cfg.output, cfg.semantic, {
+        limit: options.limit,
+        rebuild: Boolean(options.rebuild)
+      });
+      console.log(`indexed=${result.indexed} skipped=${result.skipped}`);
+    } finally {
+      db.close();
+    }
+  });
+
+program.command("search")
+  .argument("<slug>", "poller slug")
+  .argument("<query>", "semantic search query")
+  .option("--limit <n>", "max rows", parseNumber, 10)
+  .description("semantic search over parsed records")
+  .action(async (slug, query, options) => {
+    const cfg = loadPoller(slug, { home: homeFromProgram(), requireSecrets: false });
+    const db = connect(cfg.settings.dbPath);
+    try {
+      const rows = await searchRecords(db, cfg.output, cfg.semantic, query, { limit: options.limit });
+      console.log(JSON.stringify(rows, null, 2));
+    } finally {
+      db.close();
+    }
+  });
+
 program.command("start")
   .argument("<slug>", "poller slug")
   .action((slug) => {
@@ -299,4 +344,17 @@ function writeSchemaAndInit(cfg: PollerConfig, schema: OutputSchema): void {
 function parseColumnType(value: string): OutputColumn["type"] {
   if (["text", "integer", "number", "boolean", "json"].includes(value)) return value as OutputColumn["type"];
   throw new Error(`unsupported column type: ${value}`);
+}
+
+function parseSemanticProvider(value: string): "transformers" {
+  if (value === "transformers") return value;
+  throw new Error(`unsupported semantic provider: ${value}`);
+}
+
+function parseSemanticDimensions(value: string): number {
+  const dimensions = parseNumber(value);
+  if (!Number.isInteger(dimensions) || dimensions < 1 || dimensions > 4096) {
+    throw new Error(`semantic dimensions must be an integer from 1 to 4096, got ${value}`);
+  }
+  return dimensions;
 }
