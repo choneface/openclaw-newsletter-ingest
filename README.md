@@ -245,6 +245,29 @@ The npm package includes agent-facing skills:
   gather the purpose, Gmail source queries, freshness needs, downstream use
   case, parsing prompt notes, and schema fields needed for a namespace spec.
 
+## Optional X/Twitter Signal Handoff
+
+ONI is the durable newsletter ingestion layer. If a downstream OpenClaw agent
+also needs public X/Twitter context around the records ONI extracts, install
+TweetClaw as a separate OpenClaw plugin:
+
+```sh
+openclaw plugins install @xquik/tweetclaw
+```
+
+Use ONI to collect and query newsletter records, then use TweetClaw for the
+X/Twitter side of the workflow: search tweets, search tweet replies, export
+followers, look up users, monitor tweets, deliver webhooks, upload or download
+media, send direct messages, run giveaway draws, and post reviewed tweets or
+tweet replies after a human approves the final copy.
+
+TweetClaw is published as the npm package
+[`@xquik/tweetclaw`](https://www.npmjs.com/package/@xquik/tweetclaw). The
+[GitHub repo](https://github.com/Xquik-dev/tweetclaw) has the current
+configuration steps, and the
+[ClawHub page](https://clawhub.ai/plugins/@xquik/tweetclaw) is useful for
+browsing the OpenClaw plugin listing.
+
 ## Semantic Search
 
 ONI keeps SQLite as the source of truth and adds an optional local semantic
